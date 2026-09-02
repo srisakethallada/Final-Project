@@ -38,37 +38,37 @@ export const JobSearchPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 text-white font-sans">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold font-outfit text-slate-900">Job Search & Match Discovery</h1>
+            <h1 className="text-2xl font-bold text-white">Job Search & Match Discovery</h1>
             <AgentBadge code="AG-002" name="Job Search" />
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-neutral-400 mt-1">
             AG-002 continuously identifies job opportunities aligned with your structured profile & preferences.
           </p>
         </div>
       </div>
 
       {/* Search & Filter Bar */}
-      <Card className="p-4 flex flex-col md:flex-row items-center gap-4 bg-white">
+      <Card className="p-4 flex flex-col md:flex-row items-center gap-4 bg-[#1A1A1A] border-white/12">
         <div className="relative flex-1 w-full">
           <Input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search job title, company, or keywords..."
-            className="pl-10 text-xs"
+            className="pl-10 text-xs bg-[#111111]"
           />
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+          <Search className="w-4 h-4 text-neutral-500 absolute left-3.5 top-3" />
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
           <select
             value={selectedWorkMode}
             onChange={e => setSelectedWorkMode(e.target.value)}
-            className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 font-semibold"
+            className="px-4 py-2.5 rounded-xl border border-white/15 text-xs bg-[#111111] text-white focus:outline-none focus:border-white/35 font-semibold"
           >
             <option value="ALL">All Work Modes</option>
             <option value="HYBRID">Hybrid</option>
@@ -81,36 +81,36 @@ export const JobSearchPage: React.FC = () => {
       {/* Jobs Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {filteredJobs.map(job => (
-          <Card key={job.id} className="p-6 flex flex-col justify-between hoverable">
+          <Card key={job.id} className="p-6 flex flex-col justify-between hoverable bg-[#1A1A1A] border-white/12">
             <div>
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
-                  <h3 className="font-bold text-base font-outfit text-slate-900 leading-snug">{job.title}</h3>
-                  <p className="text-xs font-semibold text-brand-600 mt-0.5">{job.company}</p>
+                  <h3 className="font-bold text-base text-white leading-snug">{job.title}</h3>
+                  <p className="text-xs font-semibold text-neutral-400 mt-0.5">{job.company}</p>
                 </div>
                 <MatchScoreBadge score={job.relevanceScore} size="sm" />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mb-4 font-medium">
-                <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-slate-400" /> {job.location}</span>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-400 mb-4 font-medium">
+                <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-neutral-500" /> {job.location}</span>
                 <span>•</span>
-                <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5 text-slate-400" /> {job.salaryRange}</span>
+                <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5 text-neutral-500" /> {job.salaryRange}</span>
                 <span>•</span>
-                <Badge variant="slate" size="sm">{job.workMode}</Badge>
+                <Badge variant="dark" size="sm">{job.workMode}</Badge>
               </div>
 
-              <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed mb-4">
+              <p className="text-xs text-neutral-300 line-clamp-2 leading-relaxed mb-4">
                 Seeking a Frontend Software Engineer to build intuitive, high-performance UI components with React, TypeScript, and streaming AI backend integrations.
               </p>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-[11px] text-slate-400">Posted {job.postedDate}</span>
+            <div className="pt-4 border-t border-white/10 flex items-center justify-between">
+              <span className="text-[11px] text-neutral-500">Posted {job.postedDate}</span>
               <Button
-                variant="primary"
+                variant="whitePill"
                 size="sm"
                 onClick={() => handleSelectJob(job)}
-                rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                rightIcon={<ArrowRight className="w-3.5 h-3.5 text-black" />}
               >
                 Analyze JD & Skills
               </Button>

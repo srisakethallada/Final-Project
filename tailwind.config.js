@@ -6,36 +6,43 @@ export default {
   ],
   theme: {
     extend: {
-      colors: {
-        brand: {
-          50: '#f0f3ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
-          950: '#1e1b4b',
-        },
-        slate: {
-          850: '#172033',
-        }
-      },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['BubbledotICG-FinePos', 'Geist Pixel Circle', 'monospace'],
+        mono: ['Geist Pixel Circle', 'Courier New', 'monospace'],
+      },
+      colors: {
+        dark: {
+          bg: '#000000',
+          surface: '#0A0A0A',
+          surface2: '#111111',
+          elevated: '#181818',
+          card: '#1A1A1A',
+          hover: '#222222',
+          pill: '#28282A',
+          pillHover: '#323234',
+          border: 'rgba(255,255,255,0.12)',
+          borderStrong: 'rgba(255,255,255,0.20)',
+          borderWhite: 'rgba(255,255,255,0.35)',
+          muted: '#8E8E8E',
+          subtle: '#C8C8C8',
+          disabled: '#5F5F5F',
+        },
+        status: {
+          success: '#B8F5D0',
+          warning: '#FFE7A3',
+          error: '#FFB3B3',
+          info: '#C9D7FF',
+        }
       },
       boxShadow: {
-        'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
-        'card-hover': '0 20px 30px -10px rgba(99, 102, 241, 0.15)',
-        'glow': '0 0 25px -5px rgba(99, 102, 241, 0.4)',
+        'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.4)',
+        'card-hover': '0 10px 25px -5px rgba(255, 255, 255, 0.05)',
+        'glow': '0 0 25px -5px rgba(255, 255, 255, 0.25)',
       },
       animation: {
         'float': 'float 6s ease-in-out infinite',
         'pulse-subtle': 'pulseSubtle 3s ease-in-out infinite',
-        'shimmer': 'shimmer 2s linear infinite',
       },
       keyframes: {
         float: {
@@ -45,10 +52,6 @@ export default {
         pulseSubtle: {
           '0%, 100%': { opacity: 1 },
           '50%': { opacity: 0.7 },
-        },
-        shimmer: {
-          '0%': { backgroundPosition: '-200% 0' },
-          '100%': { backgroundPosition: '200% 0' },
         }
       }
     },

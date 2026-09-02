@@ -32,15 +32,15 @@ export const ResumeOptimizationPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 text-white font-sans">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold font-outfit text-slate-900">Tailored ATS Resume</h1>
+            <h1 className="text-2xl font-bold text-white">Tailored ATS Resume</h1>
             <AgentBadge code="AG-004" name="Resume Optimization" />
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-neutral-400 mt-1">
             AG-004 optimizes formatting and keyword placement specifically for your target job description.
           </p>
         </div>
@@ -50,11 +50,11 @@ export const ResumeOptimizationPage: React.FC = () => {
             Download PDF
           </Button>
           <Button
-            variant="gradient"
+            variant="whitePill"
             size="sm"
             onClick={handleGenerateCoverLetter}
             isLoading={isLoading}
-            rightIcon={<ArrowRight className="w-4 h-4" />}
+            rightIcon={<ArrowRight className="w-4 h-4 text-black" />}
           >
             Generate Cover Letter (AG-005)
           </Button>
@@ -62,11 +62,11 @@ export const ResumeOptimizationPage: React.FC = () => {
       </div>
 
       {/* MANDATORY TRUTHFULNESS GUARDRAIL BANNER */}
-      <Card className="p-4 bg-emerald-50 border-emerald-200 flex items-center gap-3">
-        <ShieldCheck className="w-6 h-6 text-emerald-600 shrink-0" />
+      <Card className="p-4 bg-[#111111] border-emerald-800/50 flex items-center gap-3">
+        <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0" />
         <div className="text-xs">
-          <span className="font-bold text-emerald-900 block">Strict Fabrication Guardrail Enforced:</span>
-          <span className="text-emerald-700">
+          <span className="font-bold text-emerald-300 block">Strict Fabrication Guardrail Enforced:</span>
+          <span className="text-neutral-300">
             This system does NOT fabricate work experience, skills, projects, certifications, or qualifications. Every item in this tailored resume is grounded only in your verified source profile.
           </span>
         </div>
@@ -74,11 +74,11 @@ export const ResumeOptimizationPage: React.FC = () => {
 
       {/* Main Resume Comparison & Tailored Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Columns: Tailored Resume Document Preview */}
+        {/* Left 2 Columns: Tailored Resume Document Preview (White Paper Document Preview) */}
         <div className="lg:col-span-2 space-y-6">
-          <Card className="p-8 bg-white border-slate-300 shadow-xl space-y-6 font-sans">
+          <div className="p-8 bg-white text-slate-900 border border-slate-300 rounded-2xl shadow-2xl space-y-6 font-sans select-text">
             <div className="border-b border-slate-200 pb-4 text-center">
-              <h2 className="text-2xl font-extrabold text-slate-900 font-outfit">Sri Saketh</h2>
+              <h2 className="text-2xl font-extrabold text-slate-900">Sri Saketh</h2>
               <p className="text-xs text-slate-600 font-medium mt-1">
                 San Francisco, CA • saketh@example.com • +1 (555) 234-5678
               </p>
@@ -89,7 +89,7 @@ export const ResumeOptimizationPage: React.FC = () => {
 
             {/* Profile Summary */}
             <div>
-              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2 font-outfit">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
                 Professional Summary
               </h3>
               <p className="text-xs text-slate-700 leading-relaxed">
@@ -99,7 +99,7 @@ export const ResumeOptimizationPage: React.FC = () => {
 
             {/* Re-ordered ATS Matched Skills */}
             <div>
-              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2 font-outfit">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
                 Technical Skills (ATS Keyword Optimized)
               </h3>
               <p className="text-xs text-slate-700 leading-relaxed">
@@ -110,7 +110,7 @@ export const ResumeOptimizationPage: React.FC = () => {
 
             {/* Work History */}
             <div>
-              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2 font-outfit">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
                 Work Experience
               </h3>
               <div className="space-y-3 text-xs">
@@ -127,20 +127,20 @@ export const ResumeOptimizationPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          </Card>
+          </div>
         </div>
 
         {/* Right Column: Optimization Highlights */}
         <div className="space-y-6">
-          <Card className="p-6 space-y-4">
-            <h3 className="font-bold text-base font-outfit text-slate-900">Optimization Insights</h3>
-            <div className="space-y-3 text-xs text-slate-700">
-              <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100">
-                <span className="font-bold text-indigo-900 block mb-1">ATS Parse Compatibility</span>
+          <Card className="p-6 space-y-4 bg-[#1A1A1A] border-white/12">
+            <h3 className="font-bold text-base text-white">Optimization Insights</h3>
+            <div className="space-y-3 text-xs text-neutral-300">
+              <div className="p-3 rounded-xl bg-[#111111] border border-white/10">
+                <span className="font-bold text-white block mb-1">ATS Parse Compatibility</span>
                 <span>Single-column format, standard font hierarchy, zero table layout traps.</span>
               </div>
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
-                <span className="font-bold text-emerald-900 block mb-1">Matched Keywords</span>
+              <div className="p-3 rounded-xl bg-[#111111] border border-emerald-800/40">
+                <span className="font-bold text-emerald-300 block mb-1">Matched Keywords</span>
                 <span>React, TypeScript, REST APIs, Tailwind CSS, AWS, Docker</span>
               </div>
             </div>

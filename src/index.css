@@ -2,105 +2,136 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'BubbledotICG-FinePos';
+  src: url('https://db.onlinewebfonts.com/t/8cb707a9b8a73f8a7403336b861c3074.eot');
+  src: url('https://db.onlinewebfonts.com/t/8cb707a9b8a73f8a7403336b861c3074.eot?#iefix') format('embedded-opentype'),
+       url('https://db.onlinewebfonts.com/t/8cb707a9b8a73f8a7403336b861c3074.woff2') format('woff2'),
+       url('https://db.onlinewebfonts.com/t/8cb707a9b8a73f8a7403336b861c3074.woff') format('woff'),
+       url('https://db.onlinewebfonts.com/t/8cb707a9b8a73f8a7403336b861c3074.ttf') format('truetype'),
+       url('https://db.onlinewebfonts.com/t/8cb707a9b8a73f8a7403336b861c3074.svg#BubbledotICG-FinePos') format('svg');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 239 84% 67%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222 47% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 239 84% 67%;
-    --accent-foreground: 222 47% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 239 84% 67%;
-    --radius: 0.75rem;
+    --color-bg: #000000;
+    --color-surface: #0A0A0A;
+    --color-surface-2: #111111;
+    --color-surface-3: #181818;
+    --color-card: #1A1A1A;
+    --color-hover: #222222;
+    --color-text: #FFFFFF;
+    --color-text-secondary: #C8C8C8;
+    --color-text-muted: #8E8E8E;
+    --color-text-disabled: #5F5F5F;
+    --color-border: rgba(255, 255, 255, 0.12);
+    --color-border-strong: rgba(255, 255, 255, 0.20);
+    --color-border-white: rgba(255, 255, 255, 0.35);
+    --color-primary: #FFFFFF;
+    --color-primary-text: #000000;
+    --color-secondary-button: #28282A;
+    --color-secondary-button-text: #C8C8C8;
+    --color-secondary-button-hover: #323234;
+    --color-success: #B8F5D0;
+    --color-warning: #FFE7A3;
+    --color-error: #FFB3B3;
+    --color-info: #C9D7FF;
   }
 }
 
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: #000000;
+  color: #ffffff;
   overflow-x: hidden;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-family: 'Outfit', 'Inter', sans-serif;
+.font-display {
+  font-family: 'BubbledotICG-FinePos', 'Geist Pixel Circle', monospace;
 }
 
-/* Glassmorphism subtle background effects */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.85);
+/* Glassmorphism dark panel effects */
+.dark-glass-panel {
+  background: rgba(26, 26, 26, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.glass-card {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(241, 245, 249, 1);
-  box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+.dark-card {
+  background: #1A1A1A;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.2s ease-in-out;
 }
 
-.glass-card:hover {
-  box-shadow: 0 20px 30px -10px rgba(99, 102, 241, 0.12), 0 10px 15px -3px rgba(0, 0, 0, 0.03);
+.dark-card:hover {
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
-/* Gradient accents */
-.text-gradient {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #2563eb 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+/* White CTA Glow & Pill styling */
+.btn-white-pill {
+  background-color: #ffffff;
+  color: #000000;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  border-radius: 9999px;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.25);
+  transition: all 0.2s ease-in-out;
 }
 
-.bg-gradient-hero {
-  background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.12) 0%, rgba(248, 250, 252, 0) 70%);
+.btn-white-pill:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.45);
 }
 
-.bg-gradient-accent {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+.btn-dark-pill {
+  background-color: #28282A;
+  color: #C8C8C8;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.2s ease-in-out;
 }
 
-/* Scrollbar customization */
+.btn-dark-pill:hover {
+  background-color: #323234;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* Custom dark scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #0a0a0a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #28282a;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #444448;
 }
 
-/* Animations */
-@keyframes pulseGlow {
-  0%, 100% {
-    box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(99, 102, 241, 0.6);
-  }
+/* Form inputs global focus rule */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.35) !important;
 }
 
-.pulse-glow {
-  animation: pulseGlow 3s infinite ease-in-out;
+/* Accessibility reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

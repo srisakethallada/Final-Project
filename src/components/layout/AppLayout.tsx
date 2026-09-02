@@ -14,18 +14,16 @@ import {
   User as UserIcon,
   Settings as SettingsIcon,
   Sparkles,
-  ChevronRight,
   Menu,
   X,
   LogOut,
-  ShieldCheck
+  Cpu
 } from 'lucide-react';
-import { Badge, AgentBadge } from '../ui';
 
 export const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, profile, notifications, selectedJob, activeInterview, emailEvent } = useWorkflow();
+  const { user, profile, notifications, selectedJob } = useWorkflow();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -46,33 +44,33 @@ export const AppLayout: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-900 selection:bg-brand-500 selection:text-white">
+    <div className="min-h-screen bg-black flex flex-col md:flex-row text-white selection:bg-white selection:text-black">
       {/* DESKTOP SIDEBAR NAVIGATION */}
-      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200/80 sticky top-0 h-screen z-30 shrink-0">
+      <aside className="hidden md:flex flex-col w-64 bg-[#0A0A0A] border-r border-white/12 sticky top-0 h-screen z-30 shrink-0">
         {/* Brand Header */}
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+        <div className="p-6 border-b border-white/12 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/app/dashboard')}>
-            <div className="w-9 h-9 rounded-xl bg-brand-600 text-white font-bold text-lg flex items-center justify-center font-outfit shadow-md shadow-brand-500/20">
-              AI
+            <div className="w-9 h-9 rounded-full bg-white text-black font-bold text-lg flex items-center justify-center shadow-sm">
+              <Cpu className="w-5 h-5 text-black" />
             </div>
             <div>
-              <span className="font-extrabold text-lg font-outfit text-slate-900 leading-none block">
-                AI Career <span className="text-brand-600">OS</span>
+              <span className="font-extrabold text-base font-sans text-white leading-none block">
+                AI Career <span className="text-neutral-400">OS</span>
               </span>
-              <span className="text-[10px] text-slate-400 font-mono">v1.0 • SRS Verified</span>
+              <span className="text-[10px] text-neutral-500 font-mono">v1.0 • SRS Verified</span>
             </div>
           </div>
         </div>
 
         {/* Active Context Banner */}
         {selectedJob && (
-          <div className="px-4 py-3 bg-brand-50/60 border-b border-brand-100/80 text-xs">
-            <div className="flex items-center justify-between text-brand-800 font-semibold mb-0.5">
+          <div className="px-4 py-3 bg-[#121212] border-b border-white/12 text-xs">
+            <div className="flex items-center justify-between text-neutral-300 font-semibold mb-0.5">
               <span>Active Job Context:</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             </div>
-            <p className="font-bold text-slate-900 truncate">{selectedJob.company}</p>
-            <p className="text-[11px] text-slate-500 truncate">{selectedJob.title}</p>
+            <p className="font-bold text-white truncate">{selectedJob.company}</p>
+            <p className="text-[11px] text-neutral-400 truncate">{selectedJob.title}</p>
           </div>
         )}
 
@@ -85,8 +83,8 @@ export const AppLayout: React.FC = () => {
               className={({ isActive }) =>
                 `flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                   isActive
-                    ? 'bg-brand-600 text-white shadow-md shadow-brand-500/20'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-[#1A1A1A] text-white font-bold border border-white/20 shadow-sm'
+                    : 'text-[#8E8E8E] hover:bg-[#181818] hover:text-white'
                 }`
               }
             >
@@ -95,11 +93,11 @@ export const AppLayout: React.FC = () => {
                 <span>{item.label}</span>
               </div>
               {item.count ? (
-                <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500 text-white font-bold">
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500/80 text-white font-bold">
                   {item.count}
                 </span>
               ) : item.badge ? (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 font-medium">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[#28282A] text-neutral-300 font-medium border border-white/10">
                   {item.badge}
                 </span>
               ) : null}
@@ -108,26 +106,26 @@ export const AppLayout: React.FC = () => {
         </nav>
 
         {/* User Profile & Trigger Assistant */}
-        <div className="p-4 border-t border-slate-100 space-y-2">
+        <div className="p-4 border-t border-white/12 space-y-2">
           <button
             onClick={() => setAssistantOpen(true)}
-            className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 text-white text-xs font-bold shadow-md shadow-brand-500/20 hover:opacity-95 transition-opacity"
+            className="w-full flex items-center justify-center gap-2 p-2.5 rounded-full bg-white text-black text-xs font-bold shadow-[0_0_15px_rgba(255,255,255,0.2)] hover:bg-neutral-200 transition-colors"
           >
-            <Sparkles className="w-4 h-4" /> AI Assistant Drawer
+            <Sparkles className="w-4 h-4 text-black" /> AI Assistant Drawer
           </button>
 
           <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-2.5">
-              <img src={user.avatarUrl} alt="User" className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
+              <img src={user.avatarUrl} alt="User" className="w-8 h-8 rounded-full border border-white/20 object-cover" />
               <div className="text-left">
-                <p className="text-xs font-bold text-slate-800 font-outfit truncate w-28">{user.name}</p>
-                <p className="text-[10px] text-slate-400 truncate w-28">{user.email}</p>
+                <p className="text-xs font-bold text-white truncate w-28">{user.name}</p>
+                <p className="text-[10px] text-neutral-400 truncate w-28">{user.email}</p>
               </div>
             </div>
             <button
               onClick={() => navigate('/')}
               title="Sign Out"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -136,24 +134,24 @@ export const AppLayout: React.FC = () => {
       </aside>
 
       {/* MOBILE TOP BAR */}
-      <header className="md:hidden bg-white border-b border-slate-200 px-4 h-16 flex items-center justify-between sticky top-0 z-40">
+      <header className="md:hidden bg-[#0A0A0A] border-b border-white/12 px-4 h-16 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/app/dashboard')}>
-          <div className="w-8 h-8 rounded-lg bg-brand-600 text-white font-bold text-base flex items-center justify-center font-outfit">
-            AI
+          <div className="w-8 h-8 rounded-full bg-white text-black font-bold text-base flex items-center justify-center">
+            <Cpu className="w-4 h-4 text-black" />
           </div>
-          <span className="font-bold text-base font-outfit text-slate-900">AI Career OS</span>
+          <span className="font-bold text-base font-sans text-white">AI Career OS</span>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={() => setAssistantOpen(true)}
-            className="p-2 rounded-lg bg-brand-50 text-brand-600 text-xs font-bold flex items-center gap-1"
+            className="p-2 rounded-full bg-white text-black text-xs font-bold flex items-center gap-1"
           >
             <Sparkles className="w-4 h-4" /> AI
           </button>
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-lg text-slate-600 hover:bg-slate-100"
+            className="p-2 rounded-full text-neutral-300 hover:bg-white/10"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -162,12 +160,12 @@ export const AppLayout: React.FC = () => {
 
       {/* MOBILE DRAWER */}
       {mobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex">
-          <div className="w-4/5 max-w-xs bg-white h-full p-4 flex flex-col justify-between">
+        <div className="md:hidden fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex">
+          <div className="w-4/5 max-w-xs bg-[#0A0A0A] border-r border-white/12 h-full p-4 flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <span className="font-bold text-slate-900 font-outfit">Menu Navigation</span>
-                <button onClick={() => setMobileMenuOpen(false)}><X className="w-5 h-5 text-slate-500" /></button>
+              <div className="flex items-center justify-between pb-4 border-b border-white/12">
+                <span className="font-bold text-white font-sans">Navigation Menu</span>
+                <button onClick={() => setMobileMenuOpen(false)}><X className="w-5 h-5 text-neutral-400" /></button>
               </div>
               <nav className="py-4 space-y-1">
                 {navItems.map(item => (
@@ -175,7 +173,7 @@ export const AppLayout: React.FC = () => {
                     key={item.path}
                     to={item.path}
                     onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold text-[#8E8E8E] hover:bg-[#181818] hover:text-white"
                   >
                     <div className="flex items-center gap-3">
                       {item.icon}
@@ -190,7 +188,7 @@ export const AppLayout: React.FC = () => {
       )}
 
       {/* MAIN CONTENT WORKSPACE AREA */}
-      <main className="flex-1 min-w-0 overflow-y-auto">
+      <main className="flex-1 min-w-0 overflow-y-auto bg-black">
         <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
           <Outlet />
         </div>

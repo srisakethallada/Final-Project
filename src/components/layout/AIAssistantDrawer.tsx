@@ -66,7 +66,7 @@ export const AIAssistantDrawer: React.FC<{ isOpen: boolean; onClose: () => void 
         sender: 'ai',
         text: 'AG-004 generated your Tailored ATS Resume! Zero fabricated claims were added. Would you like to view the diff or generate a cover letter?',
         actionBtn: (
-          <Button variant="gradient" size="sm" onClick={() => { onClose(); navigate('/app/resume/optimize'); }}>
+          <Button variant="whitePill" size="sm" onClick={() => { onClose(); navigate('/app/resume/optimize'); }}>
             View Tailored Resume Diff
           </Button>
         )
@@ -75,36 +75,36 @@ export const AIAssistantDrawer: React.FC<{ isOpen: boolean; onClose: () => void 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col border-l border-slate-200">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="w-full max-w-md bg-[#0A0A0A] text-white h-full shadow-2xl flex flex-col border-l border-white/12">
         {/* Header */}
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+        <div className="p-4 border-b border-white/12 flex items-center justify-between bg-[#111111]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md shadow-brand-500/20">
-              <Bot className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center font-bold shadow-md">
+              <Bot className="w-5 h-5 text-black" />
             </div>
             <div>
-              <h3 className="font-bold text-sm font-outfit text-slate-900">Context-Aware AI Assistant</h3>
-              <p className="text-[10px] text-slate-500 font-mono">Central Orchestrator Supervisor</p>
+              <h3 className="font-bold text-sm font-sans text-white">Context-Aware AI Assistant</h3>
+              <p className="text-[10px] text-neutral-400 font-mono">Central Orchestrator Supervisor</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200/60 text-slate-500">
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Dynamic Context Card Pill */}
-        <div className="p-3 bg-brand-50/80 border-b border-brand-100 px-4">
-          <div className="flex items-center justify-between text-xs font-semibold text-brand-900 mb-1">
+        <div className="p-3 bg-[#161618] border-b border-white/12 px-4">
+          <div className="flex items-center justify-between text-xs font-semibold text-white mb-1">
             <span>Workflow Context</span>
             <AgentBadge code="AG-003" name="JD Context" />
           </div>
           {selectedJob ? (
-            <p className="text-xs text-slate-700">
-              Selected Role: <span className="font-bold text-slate-900">{selectedJob.title}</span> at <span className="font-bold text-slate-900">{selectedJob.company}</span> (Match: {selectedJob.relevanceScore}%)
+            <p className="text-xs text-neutral-300">
+              Selected Role: <span className="font-bold text-white">{selectedJob.title}</span> at <span className="font-bold text-white">{selectedJob.company}</span> (Match: {selectedJob.relevanceScore}%)
             </p>
           ) : (
-            <p className="text-xs text-slate-500">No specific job selected yet.</p>
+            <p className="text-xs text-neutral-400">No specific job selected yet.</p>
           )}
         </div>
 
@@ -113,14 +113,14 @@ export const AIAssistantDrawer: React.FC<{ isOpen: boolean; onClose: () => void 
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-3 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.sender === 'ai' && (
-                <div className="w-7 h-7 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center shrink-0 font-bold">
+                <div className="w-7 h-7 rounded-full bg-[#28282A] text-white flex items-center justify-center shrink-0 font-bold border border-white/12">
                   <Bot className="w-4 h-4" />
                 </div>
               )}
               <div className={`max-w-[85%] p-3.5 rounded-2xl ${
                 msg.sender === 'user'
-                  ? 'bg-brand-600 text-white rounded-br-none'
-                  : 'bg-slate-100 text-slate-800 rounded-bl-none border border-slate-200/60'
+                  ? 'bg-white text-black font-medium rounded-br-none'
+                  : 'bg-[#1A1A1A] text-neutral-200 rounded-bl-none border border-white/12'
               }`}>
                 <p className="leading-relaxed">{msg.text}</p>
                 {msg.actionBtn && <div className="mt-3">{msg.actionBtn}</div>}
@@ -130,15 +130,15 @@ export const AIAssistantDrawer: React.FC<{ isOpen: boolean; onClose: () => void 
 
           {/* Contextual Smart Prompt Cards */}
           {selectedJob && !tailoredResume && (
-            <div className="p-3 bg-indigo-50/80 rounded-2xl border border-indigo-100 text-xs">
-              <p className="font-semibold text-indigo-900 mb-2">
+            <div className="p-4 bg-[#1A1A1A] rounded-2xl border border-white/15 text-xs text-white">
+              <p className="font-semibold text-white mb-3">
                 Your current resume matches "{selectedJob.title}" at {selectedJob.relevanceScore}%. Would you like me to generate a tailored ATS resume?
               </p>
               <div className="flex gap-2">
-                <Button variant="gradient" size="sm" onClick={handleOptimizeClick} isLoading={isLoading}>
+                <Button variant="whitePill" size="sm" onClick={handleOptimizeClick} isLoading={isLoading}>
                   Yes, Optimize Resume
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => {}}>
+                <Button variant="darkPill" size="sm" onClick={() => {}}>
                   Not Now
                 </Button>
               </div>
@@ -146,16 +146,16 @@ export const AIAssistantDrawer: React.FC<{ isOpen: boolean; onClose: () => void 
           )}
 
           {emailEvent && (
-            <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-xs">
-              <div className="flex items-center gap-2 font-bold text-emerald-900 mb-1">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <div className="p-4 bg-[#1A1A1A] rounded-2xl border border-emerald-800/50 text-xs">
+              <div className="flex items-center gap-2 font-bold text-emerald-300 mb-1">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 Interview Invitation Detected!
               </div>
-              <p className="text-emerald-800 mb-2">
-                Detected invitation for <span className="font-bold">{emailEvent.roleTitle}</span> at {emailEvent.companyName} on {emailEvent.interviewDate}.
+              <p className="text-neutral-300 mb-3">
+                Detected invitation for <span className="font-bold text-white">{emailEvent.roleTitle}</span> at {emailEvent.companyName} on {emailEvent.interviewDate}.
               </p>
               <Button
-                variant="gradient"
+                variant="whitePill"
                 size="sm"
                 onClick={() => { onClose(); navigate('/app/interviews'); }}
               >
@@ -166,15 +166,15 @@ export const AIAssistantDrawer: React.FC<{ isOpen: boolean; onClose: () => void 
         </div>
 
         {/* Input Bar */}
-        <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-200 flex gap-2">
+        <form onSubmit={handleSendMessage} className="p-3 border-t border-white/12 flex gap-2 bg-[#111111]">
           <input
             type="text"
             value={inputMessage}
             onChange={e => setInputMessage(e.target.value)}
             placeholder="Ask your career assistant..."
-            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="flex-1 px-3.5 py-2.5 rounded-full border border-white/15 bg-[#18181A] text-white text-xs focus:outline-none focus:border-white/35 placeholder:text-neutral-500"
           />
-          <button type="submit" className="p-2.5 rounded-xl bg-brand-600 text-white font-bold hover:bg-brand-700">
+          <button type="submit" className="p-2.5 rounded-full bg-white text-black font-bold hover:bg-neutral-200 transition-colors">
             <Send className="w-4 h-4" />
           </button>
         </form>
