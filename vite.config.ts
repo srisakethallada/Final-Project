@@ -130,6 +130,79 @@ function agentApiServerPlugin() {
           }
         });
       });
+
+      // Endpoint: AG-002 Job Search Agent API Proxy
+      server.middlewares.use('/api/search-jobs', async (req: any, res: any, next: any) => {
+        if (req.method !== 'POST') {
+          next();
+          return;
+        }
+
+        let body = '';
+        req.on('data', (chunk: any) => {
+          body += chunk;
+        });
+
+        req.on('end', async () => {
+          try {
+            const env = loadEnv(server.config.mode || 'development', process.cwd(), '');
+            const apiKey = (
+              env.RAPIDAPI_KEY ||
+              env.JSEARCH_API_KEY ||
+              env.JOB_API_KEY ||
+              process.env.RAPIDAPI_KEY ||
+              process.env.JSEARCH_API_KEY ||
+              process.env.JOB_API_KEY ||
+              ''
+            ).trim();
+
+            if (!apiKey || apiKey === 'your_rapidapi_key_here' || apiKey === 'your_job_api_key_here') {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(
+                JSON.stringify({
+                  error: {
+                    message:
+                      'Server-side Job Search API key required.\n\nPlease paste your RapidAPI / JSearch API key into:\n.env.local\n\nVariable:\nRAPIDAPI_KEY'
+                  }
+                })
+              );
+              return;
+            }
+
+            const parsedPayload = JSON.parse(body || '{}');
+            const searchQuery = (parsedPayload.query || 'Software Engineer').trim();
+            const page = parsedPayload.page || 1;
+
+            const endpoint = `https://jsearch.p.rapidapi.com/search?query=${encodeURIComponent(
+              searchQuery
+            )}&page=${page}&num_pages=1`;
+
+            const response = await fetch(endpoint, {
+              method: 'GET',
+              headers: {
+                'x-rapidapi-key': apiKey,
+                'x-rapidapi-host': 'jsearch.p.rapidapi.com'
+              }
+            });
+
+            const responseData = await response.text();
+            res.statusCode = response.status;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(responseData);
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                error: {
+                  message: err.message || 'Server error executing AG-002 Job Search request.'
+                }
+              })
+            );
+          }
+        });
+      });
     }
   };
 }

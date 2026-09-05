@@ -174,37 +174,57 @@ export const analyzeResume = async (
   }
 };
 
+import { fetchJobsFromApi } from './jobSearchAgent';
+
 // ============================================================================
-// AG-002: JOB SEARCH SERVICE
+// AG-002: JOB SEARCH SERVICE (REAL & DATA-DRIVEN)
 // ============================================================================
 export const searchJobs = async (
-  query: string,
+  userProfile: UserProfile,
+  query?: string,
   filters?: { workMode?: string; location?: string }
-): Promise<{ jobs: Job[]; log: AgentExecutionLog }> => {
-  await delay(800);
+): Promise<{ jobs: Job[]; jds: Record<string, JobDescription>; log: AgentExecutionLog }> => {
+  const startTime = Date.now();
 
-  let results = [...INITIAL_JOBS];
-  if (query) {
-    const q = query.toLowerCase();
-    results = results.filter(j => 
-      j.title.toLowerCase().includes(q) || 
-      j.company.toLowerCase().includes(q) || 
-      j.location.toLowerCase().includes(q)
-    );
+  try {
+    const { jobs, jds } = await fetchJobsFromApi(userProfile, query, filters?.location);
+
+    let filteredJobs = jobs;
+    if (filters?.workMode && filters.workMode !== 'ALL') {
+      filteredJobs = jobs.filter(j => j.workMode === filters.workMode);
+    }
+
+    const durationMs = Date.now() - startTime;
+
+    const log: AgentExecutionLog = {
+      id: `log_${Date.now()}`,
+      agentId: 'AG-002',
+      agentName: 'Job Search Agent',
+      timestamp: new Date().toISOString(),
+      status: 'SUCCESS',
+      inputSummary: `Query: "${query || userProfile.jobRole || 'Software Engineer'}" (Target Role: "${userProfile.jobRole || 'None'}")`,
+      outputSummary: `Fetched, deduplicated, and deterministically ranked ${filteredJobs.length} live jobs for career role "${userProfile.jobRole || 'Software Engineer'}".`,
+      durationMs
+    };
+
+    return { jobs: filteredJobs, jds, log };
+  } catch (err: any) {
+    const durationMs = Date.now() - startTime;
+
+    const errorLog: AgentExecutionLog = {
+      id: `log_${Date.now()}`,
+      agentId: 'AG-002',
+      agentName: 'Job Search Agent',
+      timestamp: new Date().toISOString(),
+      status: 'FAILURE',
+      inputSummary: `Job search query: "${query || userProfile.jobRole || 'Software Engineer'}"`,
+      outputSummary: `Job search failed: ${err.message || 'Unknown API error'}`,
+      durationMs
+    };
+
+    (err as any).executionLog = errorLog;
+    throw err;
   }
-
-  const log: AgentExecutionLog = {
-    id: `log_${Date.now()}`,
-    agentId: 'AG-002',
-    agentName: 'Job Search Agent',
-    timestamp: new Date().toISOString(),
-    status: 'SUCCESS',
-    inputSummary: `Search query: "${query || 'All Recommended'}"`,
-    outputSummary: `Ranked and returned ${results.length} candidate jobs.`,
-    durationMs: 800
-  };
-
-  return { jobs: results, log };
 };
 
 // ============================================================================

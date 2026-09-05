@@ -78,6 +78,7 @@ interface WorkflowContextType {
   resumeVersions: ResumeVersion[];
   activeResumeVersion: ResumeVersion | null;
   jobs: Job[];
+  allJds: Record<string, JobDescription>;
   selectedJob: Job | null;
   selectedJD: JobDescription | null;
   jdAnalysis: JDAnalysis | null;
@@ -98,12 +99,15 @@ interface WorkflowContextType {
   agentLogs: AgentExecutionLog[];
   isLoading: boolean;
   analysisError: string | null;
+  jobSearchError: string | null;
 
   // Actions / Handlers
   updateProfile: (updated: Partial<UserProfile>) => void;
   uploadAndAnalyzeResume: (file: File | string) => Promise<void>;
   confirmJobRole: (confirmedRole: string) => void;
   clearAnalysisError: () => void;
+  clearJobSearchError: () => void;
+  runJobSearch: (query?: string, filters?: { workMode?: string; location?: string }) => Promise<void>;
   selectJob: (job: Job) => Promise<void>;
   runJDAnalysis: (job: Job) => Promise<void>;
   approveResumeOptimization: () => Promise<void>;
@@ -129,10 +133,12 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [activeResumeVersion, setActiveResumeVersion] = useState<ResumeVersion | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   
-  const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
-  const [selectedJob, setSelectedJob] = useState<Job | null>(INITIAL_JOBS[0]);
-  const [selectedJD, setSelectedJD] = useState<JobDescription | null>(INITIAL_JDS['jd_001']);
-  const [jdAnalysis, setJdAnalysis] = useState<JDAnalysis | null>(INITIAL_JD_ANALYSIS);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [allJds, setAllJds] = useState<Record<string, JobDescription>>({});
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [selectedJD, setSelectedJD] = useState<JobDescription | null>(null);
+  const [jobSearchError, setJobSearchError] = useState<string | null>(null);
+  const [jdAnalysis, setJdAnalysis] = useState<JDAnalysis | null>(null);
   
   const [tailoredResume, setTailoredResume] = useState<ResumeVersion | null>(null);
   const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
@@ -224,8 +230,34 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const clearJobSearchError = () => setJobSearchError(null);
+
+  const runJobSearch = async (query?: string, filters?: { workMode?: string; location?: string }) => {
+    setIsLoading(true);
+    setJobSearchError(null);
+    try {
+      const res = await services.searchJobs(profile, query, filters);
+      setJobs(res.jobs);
+      setAllJds(prev => ({ ...prev, ...res.jds }));
+      addLog(res.log);
+    } catch (err: any) {
+      console.error('AG-002 Job Search error:', err);
+      setJobSearchError(err.message || 'Failed to fetch job listings.');
+      if (err.executionLog) {
+        addLog(err.executionLog);
+      }
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const selectJob = async (job: Job) => {
     setSelectedJob(job);
+    const targetJd = allJds[job.descriptionId];
+    if (targetJd) {
+      setSelectedJD(targetJd);
+    }
     await runJDAnalysis(job);
   };
 
@@ -356,6 +388,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       resumeVersions,
       activeResumeVersion,
       jobs,
+      allJds,
       selectedJob,
       selectedJD,
       jdAnalysis,
@@ -376,10 +409,13 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       agentLogs,
       isLoading,
       analysisError,
+      jobSearchError,
       updateProfile,
       uploadAndAnalyzeResume,
       confirmJobRole,
       clearAnalysisError,
+      clearJobSearchError,
+      runJobSearch,
       selectJob,
       runJDAnalysis,
       approveResumeOptimization,
