@@ -1,14 +1,15 @@
-import { UserProfile, Resume, ResumeVersion } from '../types';
+import { UserProfile, Resume, ResumeVersion, JDAnalysis } from '../types';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 const DB_NAME = 'AICareerOS_DB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   PROFILES: 'user_profiles',
   RESUMES: 'resumes',
   VERSIONS: 'resume_versions',
-  FILES: 'resume_files'
+  FILES: 'resume_files',
+  JD_ANALYSES: 'jd_analyses'
 };
 
 export interface ResumeFileData {
@@ -63,6 +64,11 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORES.FILES)) {
         const fileStore = db.createObjectStore(STORES.FILES, { keyPath: 'resumeId' });
         fileStore.createIndex('userId', 'userId', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(STORES.JD_ANALYSES)) {
+        const jdStore = db.createObjectStore(STORES.JD_ANALYSES, { keyPath: 'jobId' });
+        jdStore.createIndex('userId', 'userId', { unique: false });
       }
     };
   });
@@ -376,5 +382,71 @@ export const persistenceService = {
     }
 
     return fileData;
+  },
+
+  // --------------------------------------------------------------------------
+  // AG-003 JD ANALYSIS PERSISTENCE (PER JOB ID)
+  // --------------------------------------------------------------------------
+  async saveJdAnalysis(analysis: JDAnalysis): Promise<void> {
+    if (!analysis || !analysis.jobId) return;
+
+    // 1. IndexedDB Store
+    await idbPut(STORES.JD_ANALYSES, analysis);
+
+    // 2. localStorage Backup
+    try {
+      const raw = localStorage.getItem(`user_jd_analyses_${analysis.userId}`) || '{}';
+      const dict = JSON.parse(raw);
+      dict[analysis.jobId] = analysis;
+      localStorage.setItem(`user_jd_analyses_${analysis.userId}`, JSON.stringify(dict));
+    } catch (e) {
+      console.warn('localStorage JD analysis backup write warning:', e);
+    }
+
+    // 3. Supabase Sync if configured
+    if (isSupabaseConfigured) {
+      try {
+        await supabase
+          .from('jd_analyses')
+          .upsert({
+            id: analysis.id,
+            job_id: analysis.jobId,
+            user_id: analysis.userId,
+            match_score: analysis.matchScore,
+            is_approved: analysis.isApprovedForOptimization,
+            analysis_data: analysis,
+            updated_at: new Date().toISOString()
+          });
+      } catch (err) {
+        console.warn('Supabase JD analysis sync note:', err);
+      }
+    }
+  },
+
+  async getAllJdAnalyses(userId: string): Promise<Record<string, JDAnalysis>> {
+    if (!userId) return {};
+
+    const dict: Record<string, JDAnalysis> = {};
+
+    // 1. Try IndexedDB
+    const list = await idbGetByIndex<JDAnalysis>(STORES.JD_ANALYSES, 'userId', userId);
+    if (list && list.length > 0) {
+      list.forEach(item => {
+        if (item.jobId) dict[item.jobId] = item;
+      });
+      return dict;
+    }
+
+    // 2. Fallback to localStorage
+    try {
+      const raw = localStorage.getItem(`user_jd_analyses_${userId}`);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn('localStorage JD analyses read warning:', e);
+    }
+
+    return dict;
   }
 };

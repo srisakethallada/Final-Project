@@ -53,7 +53,7 @@ export const JDAnalysisPage: React.FC = () => {
           <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto" />
           <h3 className="text-lg font-bold text-white">Resume Profile Required</h3>
           <p className="text-xs text-neutral-400 max-w-md mx-auto">
-            Complete your resume analysis in AG-001 before analyzing a Job Description against your career profile.
+            Upload and analyze your resume before analyzing a job.
           </p>
           <Button
             variant="whitePill"
@@ -107,7 +107,7 @@ export const JDAnalysisPage: React.FC = () => {
           <FileText className="w-10 h-10 text-neutral-400 mx-auto" />
           <h3 className="text-lg font-bold text-white">No Job Currently Selected</h3>
           <p className="text-xs text-neutral-400 max-w-md mx-auto">
-            Select a job from AG-002 Job Search or paste a custom Job Description below to calculate your Resume-to-JD Match Score.
+            Select a job from Job Search to analyze its JD.
           </p>
 
           <div className="flex items-center justify-center gap-3 pt-2">
@@ -374,6 +374,45 @@ export const JDAnalysisPage: React.FC = () => {
             </h3>
 
             <div className="space-y-4 text-xs">
+              {/* Responsibility Alignment Section */}
+              <div className="p-4 rounded-2xl bg-[#111111] border border-white/10 space-y-3">
+                <span className="font-bold text-white flex items-center gap-2">
+                  <Briefcase className="w-4 h-4 text-neutral-400" /> Responsibility Alignment
+                </span>
+                {jdAnalysis.responsibilityAlignment && jdAnalysis.responsibilityAlignment.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {jdAnalysis.responsibilityAlignment.map((item, idx) => (
+                      <div key={idx} className="p-3 rounded-xl bg-black/60 border border-white/10 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-white text-xs">{item.responsibility}</span>
+                          <Badge
+                            variant={
+                              item.alignmentLevel === 'STRONG'
+                                ? 'success'
+                                : item.alignmentLevel === 'PARTIAL'
+                                ? 'brand'
+                                : 'dark'
+                            }
+                            size="sm"
+                          >
+                            {item.alignmentLevel === 'STRONG'
+                              ? 'Strong Alignment'
+                              : item.alignmentLevel === 'PARTIAL'
+                              ? 'Partial Alignment'
+                              : 'No Evidence'}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-neutral-400 font-mono">{item.evidence}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-neutral-400 italic font-sans text-xs">
+                    Responsibility alignment evaluated against candidate experience highlights and project records.
+                  </p>
+                )}
+              </div>
+
               {/* Experience Alignment */}
               <div className="p-4 rounded-2xl bg-[#111111] border border-white/10 space-y-1.5">
                 <div className="flex items-center justify-between">

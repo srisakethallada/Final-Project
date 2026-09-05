@@ -3,7 +3,7 @@
 // Real, Data-Driven LLM Requirement Extraction & Deterministic Match Scoring
 // ============================================================================
 
-import { UserProfile, Job, JobDescription, JDAnalysis } from '../types';
+import { UserProfile, Job, JobDescription, JDAnalysis, ResponsibilityAlignmentItem } from '../types';
 
 export interface JdRequirementLlmOutput {
   requiredSkills: string[];
@@ -16,6 +16,69 @@ export interface JdRequirementLlmOutput {
   strengths: string[];
   recommendations: string[];
 }
+
+/**
+ * Computes evidence-based Responsibility Alignment against candidate profile evidence
+ */
+export const computeResponsibilityAlignment = (
+  responsibilities: string[],
+  profile: UserProfile
+): ResponsibilityAlignmentItem[] => {
+  const candidateTexts: string[] = [];
+
+  (profile.experience || []).forEach(exp => {
+    candidateTexts.push(`${exp.role} ${exp.company} ${(exp.highlights || []).join(' ')}`.toLowerCase());
+  });
+
+  (profile.projects || []).forEach(proj => {
+    candidateTexts.push(`${proj.title} ${proj.description} ${(proj.technologies || []).join(' ')}`.toLowerCase());
+  });
+
+  const fullProfileText = candidateTexts.join(' ');
+
+  return responsibilities.map(resp => {
+    const words = resp
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/gi, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !['and', 'with', 'for', 'the', 'that', 'from', 'this', 'have', 'will', 'your', 'their', 'work'].includes(w));
+
+    if (words.length === 0) {
+      return {
+        responsibility: resp,
+        alignmentLevel: 'PARTIAL',
+        evidence: 'General responsibility statement.'
+      };
+    }
+
+    let matchCount = 0;
+    words.forEach(w => {
+      if (fullProfileText.includes(w)) matchCount++;
+    });
+
+    const ratio = matchCount / words.length;
+
+    if (ratio >= 0.4) {
+      return {
+        responsibility: resp,
+        alignmentLevel: 'STRONG',
+        evidence: 'Supported by work experience highlights and project evidence in master profile.'
+      };
+    } else if (ratio >= 0.15) {
+      return {
+        responsibility: resp,
+        alignmentLevel: 'PARTIAL',
+        evidence: 'Partially supported by related profile highlights.'
+      };
+    } else {
+      return {
+        responsibility: resp,
+        alignmentLevel: 'NO_EVIDENCE',
+        evidence: 'No evidence found in current resume.'
+      };
+    }
+  });
+};
 
 /**
  * Calculates a deterministic, explainable Resume-to-JD Match Score (0-100%)
@@ -156,11 +219,11 @@ Instructions:
 2. Extract PREFERRED / NICE-TO-HAVE skills.
 3. Summarize key responsibilities (3-5 points).
 4. Extract required qualifications.
-5. Estimate required experience years (e.g. 2, 3, 5).
-6. Extract education requirements (e.g. "Bachelor's degree in CS").
-7. Identify required or preferred certifications.
+5. Estimate required experience years (e.g. 2, 3, 5). If not specified, return 0.
+6. Extract education requirements (e.g. "Bachelor's degree in CS"). If not specified, return "Not specified in job description."
+7. Identify required or preferred certifications. If none, return [].
 8. Highlight key strengths of candidate against this JD based strictly on profile evidence.
-9. Provide 2-3 evidence-based recommendations for addressing skill gaps.
+9. Provide 2-3 evidence-based recommendations for addressing skill gaps. Zero fabrication.
 
 Return ONLY a JSON object with this structure:
 {
@@ -239,7 +302,7 @@ export const runJdAnalysisAgent = async (
   const fullJdText = jd.fullText || `${job.title} at ${job.company}. ${job.location}.`;
 
   if (!fullJdText || fullJdText.trim().length < 10) {
-    throw new Error('Job description is unavailable or incomplete.');
+    throw new Error('The selected job does not contain a usable job description.');
   }
 
   let llmOutput: JdRequirementLlmOutput;
@@ -256,7 +319,9 @@ export const runJdAnalysisAgent = async (
     llmOutput = {
       requiredSkills: reqSkills,
       preferredSkills: jd.preferredSkills || [],
-      responsibilitiesSummary: jd.responsibilities || [`Build scalable software for ${job.title} role at ${job.company}.`],
+      responsibilitiesSummary: jd.responsibilities && jd.responsibilities.length > 0
+        ? jd.responsibilities
+        : [`Build scalable software for ${job.title} role at ${job.company}.`],
       qualifications: jd.qualifications || ['Relevant technical degree or equivalent practical experience.'],
       requiredExperienceYears: jd.experienceYearsRequired || 2,
       requiredEducation: 'Bachelor degree in Computer Science or related field',
@@ -279,9 +344,11 @@ export const runJdAnalysisAgent = async (
   const candidateExpYears = profile.experience?.length ? profile.experience.length * 1.5 : 1;
   const candidateEd = profile.education?.length
     ? `${profile.education[0].degree} in ${profile.education[0].fieldOfStudy}`
-    : 'No education recorded in profile';
+    : 'No education recorded in current resume';
 
   const candidateCerts = profile.certifications?.map(c => c.name) || [];
+
+  const responsibilityAlignment = computeResponsibilityAlignment(llmOutput.responsibilitiesSummary, profile);
 
   const analysis: JDAnalysis = {
     id: `jda_${job.id}_${Date.now()}`,
@@ -294,13 +361,16 @@ export const runJdAnalysisAgent = async (
     matchedSkills,
     skillGaps,
     responsibilitiesSummary: llmOutput.responsibilitiesSummary,
+    responsibilityAlignment,
     matchScore,
     scoreBreakdown,
     experienceAlignment: {
       candidateYears: candidateExpYears,
       requiredYears: llmOutput.requiredExperienceYears,
       isAligned: candidateExpYears >= llmOutput.requiredExperienceYears,
-      evidence: candidateExpYears >= llmOutput.requiredExperienceYears
+      evidence: llmOutput.requiredExperienceYears === 0
+        ? 'Not specified in job description.'
+        : candidateExpYears >= llmOutput.requiredExperienceYears
         ? `Profile shows ${candidateExpYears} years across ${profile.experience.length} recorded roles matching requirement of ${llmOutput.requiredExperienceYears} years.`
         : `Profile records ${candidateExpYears} years across ${profile.experience.length} roles (requirement: ${llmOutput.requiredExperienceYears} years).`
     },
@@ -308,19 +378,21 @@ export const runJdAnalysisAgent = async (
       candidateEducation: candidateEd,
       requiredEducation: llmOutput.requiredEducation,
       isAligned: profile.education.length > 0,
-      evidence: profile.education.length > 0
+      evidence: llmOutput.requiredEducation.toLowerCase().includes('not specified')
+        ? 'Not specified in job description.'
+        : profile.education.length > 0
         ? `Profile records ${candidateEd}.`
-        : 'No formal education degree record found in analyzed master resume.'
+        : 'No evidence found in current resume.'
     },
     certificationAlignment: {
       candidateCerts,
       requiredCerts: llmOutput.requiredCertifications,
       isAligned: llmOutput.requiredCertifications.length === 0 || candidateCerts.length > 0,
-      evidence: candidateCerts.length > 0
+      evidence: llmOutput.requiredCertifications.length === 0
+        ? 'Not specified in job description.'
+        : candidateCerts.length > 0
         ? `Profile lists ${candidateCerts.join(', ')}.`
-        : llmOutput.requiredCertifications.length > 0
-        ? `No matching certifications found in profile for required: ${llmOutput.requiredCertifications.join(', ')}.`
-        : 'No specific certifications required for this role.'
+        : `Required certification — no evidence found in current resume.`
     },
     strengths: llmOutput.strengths,
     recommendations: llmOutput.recommendations,

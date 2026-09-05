@@ -145,6 +145,12 @@ export interface JobDescription {
   experienceYearsRequired: number;
 }
 
+export interface ResponsibilityAlignmentItem {
+  responsibility: string;
+  alignmentLevel: 'STRONG' | 'PARTIAL' | 'NO_EVIDENCE';
+  evidence: string;
+}
+
 export interface JDAnalysis {
   id: string; // DATA-008
   jobId: string;
@@ -156,6 +162,7 @@ export interface JDAnalysis {
   matchedSkills: string[];
   skillGaps: string[]; // Critical gap breakdown
   responsibilitiesSummary: string[];
+  responsibilityAlignment?: ResponsibilityAlignmentItem[];
   matchScore: number; // DATA-009 Match score 0-100
   scoreBreakdown: {
     skillMatch: number;

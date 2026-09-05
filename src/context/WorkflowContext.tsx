@@ -83,6 +83,7 @@ interface WorkflowContextType {
   selectedJob: Job | null;
   selectedJD: JobDescription | null;
   jdAnalysis: JDAnalysis | null;
+  allJdAnalyses: Record<string, JDAnalysis>;
   tailoredResume: ResumeVersion | null;
   coverLetter: CoverLetter | null;
   applications: Application[];
@@ -142,6 +143,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [selectedJD, setSelectedJD] = useState<JobDescription | null>(null);
   const [jobSearchError, setJobSearchError] = useState<string | null>(null);
   const [jdAnalysis, setJdAnalysis] = useState<JDAnalysis | null>(null);
+  const [allJdAnalyses, setAllJdAnalyses] = useState<Record<string, JDAnalysis>>({});
   
   const [tailoredResume, setTailoredResume] = useState<ResumeVersion | null>(null);
   const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
@@ -182,7 +184,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [authUser, userProfile]);
 
-  // Startup Hydration Effect: Restore DATA-002 User Profile, DATA-003 Resume, DATA-004 Resume Versions on App load
+  // Startup Hydration Effect: Restore DATA-002 User Profile, DATA-003 Resume, DATA-004 Resume Versions, and AG-003 JD Analyses on App load
   useEffect(() => {
     let isMounted = true;
 
@@ -193,6 +195,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const storedProfile = await persistenceService.getUserProfile(currentUserId);
         const storedResumes = await persistenceService.getResumes(currentUserId);
         const storedVersions = await persistenceService.getResumeVersions(currentUserId);
+        const storedAnalyses = await persistenceService.getAllJdAnalyses(currentUserId);
 
         if (!isMounted) return;
 
@@ -217,8 +220,12 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           , storedVersions[0]);
           setActiveResumeVersion(latest);
         }
+
+        if (storedAnalyses && Object.keys(storedAnalyses).length > 0) {
+          setAllJdAnalyses(storedAnalyses);
+        }
       } catch (err) {
-        console.error('Failed to hydrate AG-001 persisted data from storage:', err);
+        console.error('Failed to hydrate AG-001/AG-003 persisted data from storage:', err);
       }
     }
 
@@ -328,7 +335,11 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (targetJd) {
       setSelectedJD(targetJd);
     }
-    await runJDAnalysis(job);
+    if (allJdAnalyses[job.id]) {
+      setJdAnalysis(allJdAnalyses[job.id]);
+    } else {
+      await runJDAnalysis(job);
+    }
   };
 
   const runJDAnalysis = async (job: Job, customJd?: JobDescription) => {
@@ -340,13 +351,17 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setSelectedJD(res.jd);
       setJdAnalysis(res.analysis);
       setAllJds(prev => ({ ...prev, [res.jd.id]: res.jd }));
+      setAllJdAnalyses(prev => ({ ...prev, [job.id]: res.analysis }));
       addLog(res.log);
+
+      // PERSIST AG-003 ANALYSIS PER JOB ID
+      await persistenceService.saveJdAnalysis(res.analysis);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const approveJdAnalysis = () => {
+  const approveJdAnalysis = async () => {
     if (!jdAnalysis) return;
     const updated: JDAnalysis = {
       ...jdAnalysis,
@@ -354,6 +369,8 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       approvedAt: new Date().toISOString()
     };
     setJdAnalysis(updated);
+    setAllJdAnalyses(prev => ({ ...prev, [updated.jobId]: updated }));
+    await persistenceService.saveJdAnalysis(updated);
   };
 
   const analyzeManualJd = async (title: string, company: string, fullJdText: string) => {
@@ -511,6 +528,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       selectedJob,
       selectedJD,
       jdAnalysis,
+      allJdAnalyses,
       tailoredResume,
       coverLetter,
       applications,
