@@ -30,14 +30,6 @@ export const buildSearchQuery = (
     queryParts.push('Software Engineer');
   }
 
-  // Include top 2 technical skills if available to refine search precision
-  if (!filterQuery && profile.technicalSkills && profile.technicalSkills.length > 0) {
-    const topSkills = profile.technicalSkills.slice(0, 2).join(' ');
-    if (topSkills) {
-      queryParts.push(topSkills);
-    }
-  }
-
   const location = filterLocation?.trim() || profile.location || profile.preferences?.preferredLocation;
   if (location && !location.toLowerCase().includes('remote') && location.length > 2) {
     queryParts.push(`in ${location}`);
