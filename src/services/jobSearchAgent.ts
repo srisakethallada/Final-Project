@@ -265,7 +265,13 @@ export const fetchJobsFromApi = async (
   }
 
   const rawJson = await response.json();
-  const rawItems = Array.isArray(rawJson.data) ? rawJson.data : [];
+  const rawItems = Array.isArray(rawJson.data?.jobs)
+    ? rawJson.data.jobs
+    : Array.isArray(rawJson.data)
+    ? rawJson.data
+    : Array.isArray(rawJson)
+    ? rawJson
+    : [];
 
   if (rawItems.length === 0) {
     return { jobs: [], jds: {} };

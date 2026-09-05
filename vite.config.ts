@@ -174,7 +174,7 @@ function agentApiServerPlugin() {
             const searchQuery = (parsedPayload.query || 'Software Engineer').trim();
             const page = parsedPayload.page || 1;
 
-            const endpoint = `https://jsearch.p.rapidapi.com/search?query=${encodeURIComponent(
+            const endpoint = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(
               searchQuery
             )}&page=${page}&num_pages=1`;
 
