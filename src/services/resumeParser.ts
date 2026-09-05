@@ -1,7 +1,17 @@
 // ============================================================================
-// AG-001 RESUME PARSER SERVICE
-// Extracts readable text and structural content from PDF, DOC, DOCX, & Image files.
+// AG-001 RESUME PARSER SERVICE (HIGH PRECISION MULTI-FORMAT EXTRACTION)
+// Extracts page-by-page readable text and structural content from PDF, DOC, DOCX, & Image files.
 // ============================================================================
+
+import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
+
+// Configure PDF.js worker
+try {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '4.10.38'}/pdf.worker.min.mjs`;
+} catch (e) {
+  // Worker configuration fallback
+}
 
 export interface ParsedDocument {
   rawText: string;
@@ -11,6 +21,7 @@ export interface ParsedDocument {
   extractedAt: string;
   base64Data?: string;
   mimeType: string;
+  pageCount?: number;
 }
 
 export const validateResumeFile = (file: File): { valid: boolean; error?: string } => {
@@ -50,50 +61,52 @@ export const detectFileType = (fileName: string): 'PDF' | 'DOC' | 'DOCX' | 'IMAG
 };
 
 /**
- * Extracts plain text from DOCX (ZIP archive containing word/document.xml)
+ * High precision page-by-page PDF text extraction using PDF.js
  */
-const extractTextFromDocx = async (file: File): Promise<string> => {
+const extractTextFromPdf = async (file: File): Promise<{ text: string; pageCount: number }> => {
+  let pageCount = 1;
+
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    const textDecoder = new TextDecoder('utf-8', { fatal: false });
-    const rawString = textDecoder.decode(bytes);
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+    const pdfDoc = await loadingTask.promise;
+    pageCount = pdfDoc.numPages;
+    const pageTexts: string[] = [];
 
-    // Extract text between XML tags in word/document.xml or stream
-    const xmlTagsRegex = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
-    let match;
-    const extractedParagraphs: string[] = [];
-    let currentLine = '';
+    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const textContent = await page.getTextContent();
 
-    while ((match = xmlTagsRegex.exec(rawString)) !== null) {
-      const textChunk = match[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-      currentLine += textChunk;
-      if (currentLine.length > 80 || textChunk.endsWith('.') || textChunk.endsWith(':')) {
-        extractedParagraphs.push(currentLine.trim());
-        currentLine = '';
+      let lastY: number | null = null;
+      let pageText = '';
+
+      for (const item of textContent.items as any[]) {
+        if (!item || typeof item.str !== 'string') continue;
+        
+        // Preserve vertical layout line breaks
+        if (lastY !== null && Math.abs(item.transform[5] - lastY) > 6) {
+          pageText += '\n';
+        } else if (pageText.length > 0 && !pageText.endsWith('\n') && !pageText.endsWith(' ')) {
+          pageText += ' ';
+        }
+        pageText += item.str;
+        lastY = item.transform[5];
+      }
+
+      if (pageText.trim()) {
+        pageTexts.push(`--- PAGE ${pageNum} OF ${pageCount} ---\n${pageText.trim()}`);
       }
     }
-    if (currentLine.trim()) {
-      extractedParagraphs.push(currentLine.trim());
-    }
 
-    const docxText = extractedParagraphs.join('\n');
-    if (docxText.length > 50) {
-      return docxText;
+    const fullPdfText = pageTexts.join('\n\n');
+    if (fullPdfText.length > 30) {
+      return { text: fullPdfText, pageCount };
     }
   } catch (err) {
-    console.warn('DOCX XML stream extraction note:', err);
+    console.warn('PDF.js extraction note, falling back to stream reader:', err);
   }
 
-  // Fallback text extraction for DOCX
-  const text = await file.text();
-  return text.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
-};
-
-/**
- * Extracts plain text content from PDF file streams
- */
-const extractTextFromPdf = async (file: File): Promise<string> => {
+  // Fallback stream reader
   try {
     const arrayBuffer = await file.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
@@ -101,8 +114,6 @@ const extractTextFromPdf = async (file: File): Promise<string> => {
     const rawContent = textDecoder.decode(bytes);
 
     const textPieces: string[] = [];
-    
-    // Match text within PDF streams (Tj, TJ commands and text objects)
     const tjRegex = /\(([^()]*)\)\s*Tj/g;
     let match;
     while ((match = tjRegex.exec(rawContent)) !== null) {
@@ -111,26 +122,35 @@ const extractTextFromPdf = async (file: File): Promise<string> => {
       }
     }
 
-    // Match TJ array text streams
-    const arrayTjRegex = /\[\s*\(([^()]*)\)\s*\]\s*TJ/g;
-    while ((match = arrayTjRegex.exec(rawContent)) !== null) {
-      if (match[1] && match[1].trim().length > 1) {
-        textPieces.push(match[1]);
-      }
-    }
-
     const pdfText = textPieces.join(' ').replace(/\\\(|\x5C\)/g, '').replace(/\s+/g, ' ').trim();
-    if (pdfText.length > 50) {
-      return pdfText;
+    if (pdfText.length > 30) {
+      return { text: pdfText, pageCount };
     }
   } catch (err) {
-    console.warn('PDF stream extraction note:', err);
+    console.warn('PDF fallback stream error:', err);
   }
 
-  // Fallback string extraction
   const rawText = await file.text();
   const printable = rawText.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
-  return printable;
+  return { text: printable, pageCount };
+};
+
+/**
+ * Extracts plain text from DOCX using Mammoth
+ */
+const extractTextFromDocx = async (file: File): Promise<string> => {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    if (result && result.value && result.value.trim().length > 20) {
+      return result.value.trim();
+    }
+  } catch (err) {
+    console.warn('Mammoth extraction note:', err);
+  }
+
+  const text = await file.text();
+  return text.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
 };
 
 /**
@@ -142,7 +162,6 @@ export const fileToBase64 = (file: File): Promise<string> => {
     reader.readAsDataURL(file);
     reader.onload = () => {
       const result = reader.result as string;
-      // Strip data URL prefix if present
       const base64 = result.includes(',') ? result.split(',')[1] : result;
       resolve(base64);
     };
@@ -162,11 +181,14 @@ export const parseResumeDocument = async (file: File): Promise<ParsedDocument> =
   const fileType = detectFileType(file.name);
   const base64Data = await fileToBase64(file);
   let rawText = '';
+  let pageCount = 1;
 
   if (fileType === 'DOCX') {
     rawText = await extractTextFromDocx(file);
   } else if (fileType === 'PDF') {
-    rawText = await extractTextFromPdf(file);
+    const pdfRes = await extractTextFromPdf(file);
+    rawText = pdfRes.text;
+    pageCount = pdfRes.pageCount;
   } else if (fileType === 'DOC') {
     const text = await file.text();
     rawText = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -174,7 +196,6 @@ export const parseResumeDocument = async (file: File): Promise<ParsedDocument> =
     rawText = `[Image Resume File: ${file.name}. Content sent via Multimodal Vision OCR to LLM Analysis pipeline.]`;
   }
 
-  // Ensure minimum extracted text content length or structural metadata
   if (!rawText || rawText.trim().length === 0) {
     rawText = `Resume File: ${file.name}\nFile Size: ${file.size} bytes\nFormat: ${fileType}`;
   }
@@ -186,6 +207,7 @@ export const parseResumeDocument = async (file: File): Promise<ParsedDocument> =
     fileSize: file.size,
     extractedAt: new Date().toISOString(),
     base64Data,
-    mimeType: file.type || (fileType === 'PDF' ? 'application/pdf' : fileType === 'IMAGE' ? 'image/png' : 'application/octet-stream')
+    mimeType: file.type || (fileType === 'PDF' ? 'application/pdf' : fileType === 'IMAGE' ? 'image/png' : 'application/octet-stream'),
+    pageCount
   };
 };
