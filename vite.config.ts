@@ -45,22 +45,78 @@ function agentApiServerPlugin() {
             }
 
             const parsedPayload = JSON.parse(body);
-            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(
-              apiKey
-            )}`;
 
-            const geminiResponse = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(parsedPayload)
-            });
+            const CANDIDATE_MODELS = [
+              'gemini-2.0-flash',
+              'gemini-flash-latest',
+              'gemini-2.5-flash',
+              'gemini-3.6-flash'
+            ];
 
-            const responseData = await geminiResponse.text();
-            res.statusCode = geminiResponse.status;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(responseData);
+            let lastErrorText = '';
+            let lastStatus = 500;
+            let successResult: any = null;
+
+            for (const model of CANDIDATE_MODELS) {
+              const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+                apiKey
+              )}`;
+
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                  const geminiResponse = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(parsedPayload)
+                  });
+
+                  const responseText = await geminiResponse.text();
+
+                  if (geminiResponse.ok) {
+                    successResult = { status: 200, data: responseText };
+                    break;
+                  }
+
+                  lastStatus = geminiResponse.status;
+                  lastErrorText = responseText;
+
+                  const isRetryable =
+                    geminiResponse.status === 429 ||
+                    geminiResponse.status === 503 ||
+                    geminiResponse.status >= 500 ||
+                    responseText.includes('high demand') ||
+                    responseText.includes('RESOURCE_EXHAUSTED');
+
+                  if (isRetryable && attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+                    continue;
+                  }
+
+                  break;
+                } catch (err: any) {
+                  lastErrorText = err.message || 'Network request failed';
+                  if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+                  }
+                }
+              }
+
+              if (successResult) {
+                break;
+              }
+            }
+
+            if (successResult) {
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(successResult.data);
+            } else {
+              res.statusCode = lastStatus || 503;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(lastErrorText || JSON.stringify({ error: { message: 'Gemini service is currently experiencing high demand. Please try again.' } }));
+            }
           } catch (err: any) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
