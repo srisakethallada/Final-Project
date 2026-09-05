@@ -150,6 +150,7 @@ export interface JDAnalysis {
   jobId: string;
   userId: string;
   createdAt: string;
+  resumeVersionId?: string;
   requiredSkills: string[];
   preferredSkills: string[];
   matchedSkills: string[];
@@ -162,6 +163,28 @@ export interface JDAnalysis {
     educationMatch: number;
     keywordMatch: number;
   };
+  experienceAlignment?: {
+    candidateYears: number;
+    requiredYears: number;
+    isAligned: boolean;
+    evidence: string;
+  };
+  educationAlignment?: {
+    candidateEducation: string;
+    requiredEducation: string;
+    isAligned: boolean;
+    evidence: string;
+  };
+  certificationAlignment?: {
+    candidateCerts: string[];
+    requiredCerts: string[];
+    isAligned: boolean;
+    evidence: string;
+  };
+  strengths?: string[];
+  recommendations?: string[];
+  isApprovedForOptimization?: boolean;
+  approvedAt?: string;
 }
 
 export interface CoverLetter {

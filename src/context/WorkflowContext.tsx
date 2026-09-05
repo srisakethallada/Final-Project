@@ -109,7 +109,9 @@ interface WorkflowContextType {
   clearJobSearchError: () => void;
   runJobSearch: (query?: string, filters?: { workMode?: string; location?: string }) => Promise<void>;
   selectJob: (job: Job) => Promise<void>;
-  runJDAnalysis: (job: Job) => Promise<void>;
+  runJDAnalysis: (job: Job, customJd?: JobDescription) => Promise<void>;
+  approveJdAnalysis: () => void;
+  analyzeManualJd: (title: string, company: string, fullJdText: string) => Promise<void>;
   approveResumeOptimization: () => Promise<void>;
   generateCoverLetterForSelectedJob: () => Promise<void>;
   recordJobApplication: (notes?: string) => Promise<void>;
@@ -261,16 +263,65 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await runJDAnalysis(job);
   };
 
-  const runJDAnalysis = async (job: Job) => {
+  const runJDAnalysis = async (job: Job, customJd?: JobDescription) => {
     setIsLoading(true);
     try {
-      const res = await services.analyzeJobDescription(job, profile);
+      const targetJd = customJd || allJds[job.descriptionId];
+      const res = await services.analyzeJobDescription(job, profile, targetJd, activeResumeVersion?.id);
+      setSelectedJob(job);
       setSelectedJD(res.jd);
       setJdAnalysis(res.analysis);
+      setAllJds(prev => ({ ...prev, [res.jd.id]: res.jd }));
       addLog(res.log);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const approveJdAnalysis = () => {
+    if (!jdAnalysis) return;
+    const updated: JDAnalysis = {
+      ...jdAnalysis,
+      isApprovedForOptimization: true,
+      approvedAt: new Date().toISOString()
+    };
+    setJdAnalysis(updated);
+  };
+
+  const analyzeManualJd = async (title: string, company: string, fullJdText: string) => {
+    if (!fullJdText || fullJdText.trim().length < 10) {
+      throw new Error('Please enter a valid job description before analyzing.');
+    }
+
+    const manualJobId = `job_manual_${Date.now()}`;
+    const manualJdId = `jd_${manualJobId}`;
+
+    const manualJob: Job = {
+      id: manualJobId,
+      title: title.trim() || 'Custom Software Role',
+      company: company.trim() || 'Target Company',
+      companyId: `comp_manual_${Date.now()}`,
+      location: profile.location || 'Remote / Flexible',
+      workMode: 'HYBRID',
+      jobType: 'FULL_TIME',
+      salaryRange: 'Competitive',
+      postedDate: new Date().toISOString().split('T')[0],
+      descriptionId: manualJdId,
+      relevanceScore: 85
+    };
+
+    const manualJd: JobDescription = {
+      id: manualJdId,
+      jobId: manualJobId,
+      fullText: fullJdText.trim(),
+      requiredSkills: [],
+      preferredSkills: [],
+      responsibilities: [],
+      qualifications: [],
+      experienceYearsRequired: 2
+    };
+
+    await runJDAnalysis(manualJob, manualJd);
   };
 
   const approveResumeOptimization = async () => {
@@ -418,6 +469,8 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       runJobSearch,
       selectJob,
       runJDAnalysis,
+      approveJdAnalysis,
+      analyzeManualJd,
       approveResumeOptimization,
       generateCoverLetterForSelectedJob,
       recordJobApplication,

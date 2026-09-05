@@ -227,57 +227,63 @@ export const searchJobs = async (
   }
 };
 
+import { runJdAnalysisAgent } from './jdAnalysisAgent';
+
 // ============================================================================
-// AG-003: JD ANALYSIS SERVICE
+// AG-003: JD ANALYSIS SERVICE (REAL & DATA-DRIVEN)
 // ============================================================================
 export const analyzeJobDescription = async (
   job: Job,
-  userProfile: UserProfile
+  userProfile: UserProfile,
+  existingJd?: JobDescription,
+  activeResumeVersionId?: string
 ): Promise<{ analysis: JDAnalysis; jd: JobDescription; log: AgentExecutionLog }> => {
-  await delay(1000);
+  const startTime = Date.now();
 
-  const jd = INITIAL_JDS[job.descriptionId] || {
+  const targetJd: JobDescription = existingJd || {
     id: `jd_${job.id}`,
     jobId: job.id,
-    fullText: `${job.title} at ${job.company}. Seeking skilled engineer experienced in React, TypeScript, Node.js, REST APIs, AWS, and Cloud Architecture.`,
-    requiredSkills: ['React', 'TypeScript', 'JavaScript', 'Node.js', 'REST APIs', 'AWS'],
-    preferredSkills: ['Docker', 'GraphQL', 'CI/CD'],
-    responsibilities: ['Develop scalable frontend applications', 'Integrate microservices', 'Write unit tests'],
-    qualifications: ['B.Tech or BS in Computer Science', 'Strong problem solving skills'],
-    experienceYearsRequired: 1
+    fullText: `${job.title} at ${job.company}. ${job.location}. Seeking software engineer for engineering team.`,
+    requiredSkills: userProfile.technicalSkills.length > 0 ? userProfile.technicalSkills.slice(0, 3) : ['Software Engineering'],
+    preferredSkills: [],
+    responsibilities: [`Develop and maintain software systems for ${job.title} at ${job.company}.`],
+    qualifications: ['Degree in technical discipline or equivalent experience.'],
+    experienceYearsRequired: 2
   };
 
-  const analysis: JDAnalysis = {
-    id: `jda_${Date.now()}`,
-    jobId: job.id,
-    userId: userProfile.userId,
-    createdAt: new Date().toISOString(),
-    requiredSkills: jd.requiredSkills,
-    preferredSkills: jd.preferredSkills,
-    matchedSkills: userProfile.skills.filter(s => jd.requiredSkills.concat(jd.preferredSkills).includes(s)),
-    skillGaps: jd.requiredSkills.concat(jd.preferredSkills).filter(s => !userProfile.skills.includes(s)),
-    responsibilitiesSummary: jd.responsibilities,
-    matchScore: job.relevanceScore || 88,
-    scoreBreakdown: {
-      skillMatch: 92,
-      experienceMatch: 85,
-      educationMatch: 95,
-      keywordMatch: 84
-    }
-  };
+  try {
+    const analysis = await runJdAnalysisAgent(job, targetJd, userProfile, activeResumeVersionId);
+    const durationMs = Date.now() - startTime;
 
-  const log: AgentExecutionLog = {
-    id: `log_${Date.now()}`,
-    agentId: 'AG-003',
-    agentName: 'JD Analysis Agent',
-    timestamp: new Date().toISOString(),
-    status: 'SUCCESS',
-    inputSummary: `Analyzed JD for ${job.title} at ${job.company}`,
-    outputSummary: `Calculated Match Score: ${analysis.matchScore}%, identified ${analysis.skillGaps.length} skill gaps.`,
-    durationMs: 1000
-  };
+    const log: AgentExecutionLog = {
+      id: `log_${Date.now()}`,
+      agentId: 'AG-003',
+      agentName: 'JD Analysis Agent',
+      timestamp: new Date().toISOString(),
+      status: 'SUCCESS',
+      inputSummary: `Analyzed JD for "${job.title}" at "${job.company}"`,
+      outputSummary: `Calculated Resume Match Score: ${analysis.matchScore}%. Matched ${analysis.matchedSkills.length} skills, identified ${analysis.skillGaps.length} gaps.`,
+      durationMs
+    };
 
-  return { analysis, jd, log };
+    return { analysis, jd: targetJd, log };
+  } catch (err: any) {
+    const durationMs = Date.now() - startTime;
+
+    const errorLog: AgentExecutionLog = {
+      id: `log_${Date.now()}`,
+      agentId: 'AG-003',
+      agentName: 'JD Analysis Agent',
+      timestamp: new Date().toISOString(),
+      status: 'FAILURE',
+      inputSummary: `JD Analysis attempt for "${job.title}" at "${job.company}"`,
+      outputSummary: `Analysis failed: ${err.message || 'Unknown error during JD parsing'}`,
+      durationMs
+    };
+
+    (err as any).executionLog = errorLog;
+    throw err;
+  }
 };
 
 // ============================================================================
