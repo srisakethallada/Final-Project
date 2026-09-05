@@ -53,15 +53,42 @@ export const JobSearchPage: React.FC = () => {
   };
 
   const filteredJobs = jobs.filter(j => {
-    const queryLower = searchQuery.toLowerCase();
-    const jd = allJds[j.descriptionId];
-    const matchesQuery = !searchQuery.trim() ||
-                         j.title.toLowerCase().includes(queryLower) ||
-                         j.company.toLowerCase().includes(queryLower) ||
-                         j.location.toLowerCase().includes(queryLower) ||
-                         (jd && jd.requiredSkills && jd.requiredSkills.some(s => s.toLowerCase().includes(queryLower)));
     const matchesMode = selectedWorkMode === 'ALL' || j.workMode === selectedWorkMode;
-    return matchesQuery && matchesMode;
+    if (!matchesMode) return false;
+
+    const queryLower = searchQuery.toLowerCase().trim();
+    if (!queryLower) return true;
+
+    const jd = allJds[j.descriptionId];
+    const titleLower = j.title.toLowerCase();
+    const companyLower = j.company.toLowerCase();
+    const locationLower = j.location.toLowerCase();
+    const skillsLower = jd?.requiredSkills?.map(s => s.toLowerCase()) || [];
+
+    // Exact full string match
+    if (
+      titleLower.includes(queryLower) ||
+      companyLower.includes(queryLower) ||
+      locationLower.includes(queryLower) ||
+      skillsLower.some(s => s.includes(queryLower))
+    ) {
+      return true;
+    }
+
+    // Token-based word overlap match (handling terms with '&', 'and', or multiple words)
+    const tokens = queryLower
+      .replace(/[^a-z0-9\s]/gi, ' ')
+      .split(/\s+/)
+      .filter(t => t.length > 1 && t !== 'and');
+
+    if (tokens.length === 0) return true;
+
+    return tokens.some(token =>
+      titleLower.includes(token) ||
+      companyLower.includes(token) ||
+      locationLower.includes(token) ||
+      skillsLower.some(s => s.includes(token))
+    );
   });
 
   return (
