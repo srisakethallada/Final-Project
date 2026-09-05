@@ -51,7 +51,7 @@ import { runAG001Analysis } from './resumeAnalysisAgent';
 export const analyzeResume = async (
   file: File | string,
   existingProfile?: UserProfile
-): Promise<{ resume: Resume; version: ResumeVersion; updatedProfile: UserProfile; log: AgentExecutionLog }> => {
+): Promise<{ resume: Resume; version: ResumeVersion; updatedProfile: UserProfile; log: AgentExecutionLog; dataUrl?: string }> => {
   const startTime = Date.now();
 
   if (typeof file === 'string') {
@@ -74,6 +74,7 @@ export const analyzeResume = async (
     const versionId = `ver_${Date.now()}`;
     const resumeId = `res_${Date.now()}`;
     const userId = existingProfile?.userId || 'usr_101';
+    const dataUrl = parsedDoc.base64Data ? `data:${parsedDoc.mimeType};base64,${parsedDoc.base64Data}` : undefined;
 
     // 4. Create DATA-003 Resume
     const newResume: Resume = {
@@ -152,7 +153,7 @@ export const analyzeResume = async (
       durationMs
     };
 
-    return { resume: newResume, version: newVersion, updatedProfile, log };
+    return { resume: newResume, version: newVersion, updatedProfile, log, dataUrl };
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
 

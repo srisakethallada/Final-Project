@@ -44,6 +44,7 @@ import {
 } from '../services/mockData';
 
 import * as services from '../services/agentServices';
+import { persistenceService } from '../services/persistenceService';
 
 export const EMPTY_USER_PROFILE: UserProfile = {
   id: 'prof_current',
@@ -178,13 +179,54 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         email: displayEmail,
         avatarUrl
       }));
-
-      setProfile(prev => ({
-        ...prev,
-        id: userProfile?.id || authUser?.id || prev.id,
-        userId: authUser?.id || prev.userId,
-      }));
     }
+  }, [authUser, userProfile]);
+
+  // Startup Hydration Effect: Restore DATA-002 User Profile, DATA-003 Resume, DATA-004 Resume Versions on App load
+  useEffect(() => {
+    let isMounted = true;
+
+    async function hydrateFromPersistentStorage() {
+      const currentUserId = authUser?.id || userProfile?.user_id || profile.userId || 'usr_current';
+
+      try {
+        const storedProfile = await persistenceService.getUserProfile(currentUserId);
+        const storedResumes = await persistenceService.getResumes(currentUserId);
+        const storedVersions = await persistenceService.getResumeVersions(currentUserId);
+
+        if (!isMounted) return;
+
+        if (storedProfile && storedProfile.completeness > 0) {
+          setProfile(storedProfile);
+        } else {
+          setProfile(prev => ({
+            ...prev,
+            id: userProfile?.id || authUser?.id || prev.id,
+            userId: currentUserId,
+          }));
+        }
+
+        if (storedResumes && storedResumes.length > 0) {
+          setResumes(storedResumes);
+        }
+
+        if (storedVersions && storedVersions.length > 0) {
+          setResumeVersions(storedVersions);
+          const latest = storedVersions.reduce((acc, curr) =>
+            new Date(curr.createdAt).getTime() > new Date(acc.createdAt).getTime() ? curr : acc
+          , storedVersions[0]);
+          setActiveResumeVersion(latest);
+        }
+      } catch (err) {
+        console.error('Failed to hydrate AG-001 persisted data from storage:', err);
+      }
+    }
+
+    hydrateFromPersistentStorage();
+
+    return () => {
+      isMounted = false;
+    };
   }, [authUser, userProfile]);
 
   const addLog = (log: AgentExecutionLog) => {
@@ -192,21 +234,33 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const updateProfile = (updated: Partial<UserProfile>) => {
-    setProfile(prev => ({ ...prev, ...updated }));
+    setProfile(prev => {
+      const newProf = { ...prev, ...updated };
+      persistenceService.saveUserProfile(newProf);
+      return newProf;
+    });
   };
 
   const clearAnalysisError = () => setAnalysisError(null);
 
-  const confirmJobRole = (confirmedRole: string) => {
-    setProfile(prev => ({
-      ...prev,
+  const confirmJobRole = async (confirmedRole: string) => {
+    const updatedProfile: UserProfile = {
+      ...profile,
       jobRole: confirmedRole,
       jobRoleConfidence: 'HIGH',
       jobRoleNeedsConfirmation: false,
-      headline: prev.headline || `${confirmedRole} Professional`
-    }));
+      headline: profile.headline || `${confirmedRole} Professional`
+    };
+    setProfile(updatedProfile);
+    await persistenceService.saveUserProfile(updatedProfile);
+
     if (activeResumeVersion) {
-      setActiveResumeVersion(prev => prev ? { ...prev, detectedJobRole: confirmedRole } : null);
+      const updatedVersion: ResumeVersion = {
+        ...activeResumeVersion,
+        detectedJobRole: confirmedRole
+      };
+      setActiveResumeVersion(updatedVersion);
+      await persistenceService.saveResumeVersion(updatedVersion, profile.userId);
     }
   };
 
@@ -215,11 +269,25 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setAnalysisError(null);
     try {
       const res = await services.analyzeResume(file, profile);
-      setResumes(prev => [res.resume, ...prev]);
-      setResumeVersions(prev => [res.version, ...prev]);
+      setResumes(prev => [res.resume, ...prev.filter(r => r.id !== res.resume.id)]);
+      setResumeVersions(prev => [res.version, ...prev.filter(v => v.id !== res.version.id)]);
       setActiveResumeVersion(res.version);
       setProfile(res.updatedProfile);
       addLog(res.log);
+
+      // PERSIST DATA IMMEDIATELY TO PERSISTENT DATABASE LAYER (DATA-002, DATA-003, DATA-004)
+      await persistenceService.saveUserProfile(res.updatedProfile);
+      await persistenceService.saveResume(res.resume);
+      await persistenceService.saveResumeVersion(res.version, res.updatedProfile.userId);
+
+      if (res.dataUrl) {
+        await persistenceService.saveResumeFile(res.resume.id, res.updatedProfile.userId, {
+          fileName: res.resume.originalFileName,
+          fileType: res.resume.fileType,
+          fileSize: res.resume.fileSize,
+          dataUrl: res.dataUrl
+        });
+      }
     } catch (err: any) {
       console.error('Resume analysis error:', err);
       setAnalysisError(err.message || 'Failed to analyze resume.');
