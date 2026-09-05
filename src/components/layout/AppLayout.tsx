@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useWorkflow } from '../../context/WorkflowContext';
+import { useAuth } from '../../context/AuthContext';
 import { AIAssistantDrawer } from './AIAssistantDrawer';
 import {
   LayoutDashboard,
@@ -24,11 +25,17 @@ export const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, profile, notifications, selectedJob } = useWorkflow();
+  const { signOut } = useAuth();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
+  };
 
   const navItems = [
     { label: 'Dashboard', path: '/app/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -62,20 +69,8 @@ export const AppLayout: React.FC = () => {
           </div>
         </div>
 
-        {/* Active Context Banner */}
-        {selectedJob && (
-          <div className="px-4 py-3 bg-[#121212] border-b border-white/12 text-xs">
-            <div className="flex items-center justify-between text-neutral-300 font-semibold mb-0.5">
-              <span>Active Job Context:</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            </div>
-            <p className="font-bold text-white truncate">{selectedJob.company}</p>
-            <p className="text-[11px] text-neutral-400 truncate">{selectedJob.title}</p>
-          </div>
-        )}
-
-        {/* Main Nav Links */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {/* Navigation Links */}
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {navItems.map(item => (
             <NavLink
               key={item.path}
@@ -83,7 +78,7 @@ export const AppLayout: React.FC = () => {
               className={({ isActive }) =>
                 `flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                   isActive
-                    ? 'bg-[#1A1A1A] text-white font-bold border border-white/20 shadow-sm'
+                    ? 'bg-[#1A1A1A] text-white border border-white/15 shadow-sm'
                     : 'text-[#8E8E8E] hover:bg-[#181818] hover:text-white'
                 }`
               }
@@ -92,8 +87,9 @@ export const AppLayout: React.FC = () => {
                 {item.icon}
                 <span>{item.label}</span>
               </div>
+
               {item.count ? (
-                <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500/80 text-white font-bold">
+                <span className="w-5 h-5 rounded-full bg-white text-black font-bold text-[10px] flex items-center justify-center">
                   {item.count}
                 </span>
               ) : item.badge ? (
@@ -123,7 +119,7 @@ export const AppLayout: React.FC = () => {
               </div>
             </div>
             <button
-              onClick={() => navigate('/')}
+              onClick={handleSignOut}
               title="Sign Out"
               className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
             >
@@ -182,6 +178,16 @@ export const AppLayout: React.FC = () => {
                   </NavLink>
                 ))}
               </nav>
+            </div>
+
+            <div className="pt-4 border-t border-white/12 flex items-center justify-between">
+              <span className="text-xs font-bold text-white">{user.name}</span>
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-1 text-xs text-rose-400 font-semibold"
+              >
+                <LogOut className="w-4 h-4" /> Sign Out
+              </button>
             </div>
           </div>
         </div>

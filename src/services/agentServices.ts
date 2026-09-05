@@ -42,66 +42,136 @@ import {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+import { parseResumeDocument, validateResumeFile } from './resumeParser';
+import { runAG001Analysis } from './resumeAnalysisAgent';
+
 // ============================================================================
-// AG-001: RESUME ANALYSIS SERVICE
+// AG-001: RESUME ANALYSIS SERVICE (REAL & DATA-DRIVEN)
 // ============================================================================
 export const analyzeResume = async (
   file: File | string,
   existingProfile?: UserProfile
 ): Promise<{ resume: Resume; version: ResumeVersion; updatedProfile: UserProfile; log: AgentExecutionLog }> => {
-  await delay(1200);
+  const startTime = Date.now();
 
-  const fileName = typeof file === 'string' ? file : file.name;
-  const fileSize = typeof file === 'string' ? 245000 : file.size;
+  if (typeof file === 'string') {
+    throw new Error('A valid resume document file (PDF, DOC, DOCX, or Image) must be uploaded.');
+  }
 
-  const newResume: Resume = {
-    id: `res_${Date.now()}`,
-    userId: 'usr_101',
-    originalFileName: fileName,
-    fileType: fileName.endsWith('.pdf') ? 'PDF' : fileName.endsWith('.docx') ? 'DOCX' : 'PDF',
-    fileSize,
-    uploadDate: new Date().toISOString(),
-    currentVersionId: `ver_${Date.now()}`
-  };
+  // 1. File Validation
+  const validation = validateResumeFile(file);
+  if (!validation.valid) {
+    throw new Error(validation.error || 'Invalid resume file.');
+  }
 
-  const newVersion: ResumeVersion = {
-    id: newResume.currentVersionId,
-    resumeId: newResume.id,
-    versionName: `Analyzed Resume (${fileName})`,
-    isOriginal: true,
-    createdAt: new Date().toISOString(),
-    profileSnapshot: existingProfile || INITIAL_PROFILE,
-    strengths: [
-      'Comprehensive technical skill taxonomy verified',
-      'Strong quantifiable project highlights',
-      'High baseline ATS formatting structure'
-    ],
-    weaknesses: [
-      'Minor gap in cloud deployment container orchestration detail'
-    ],
-    structureNotes: [
-      'Clean parsing of Work Experience and Education sections',
-      'Extracted 15 core technical keywords'
-    ]
-  };
+  try {
+    // 2. Parse Document
+    const parsedDoc = await parseResumeDocument(file);
 
-  const updatedProfile: UserProfile = {
-    ...(existingProfile || INITIAL_PROFILE),
-    completeness: 95
-  };
+    // 3. Run Entire Resume LLM Analysis Engine
+    const analysis = await runAG001Analysis(parsedDoc);
 
-  const log: AgentExecutionLog = {
-    id: `log_${Date.now()}`,
-    agentId: 'AG-001',
-    agentName: 'Resume Analysis Agent',
-    timestamp: new Date().toISOString(),
-    status: 'SUCCESS',
-    inputSummary: `Parsed resume: ${fileName} (${Math.round(fileSize / 1024)} KB)`,
-    outputSummary: 'Extracted structured profile, identified 3 key strengths and 1 development area.',
-    durationMs: 1200
-  };
+    const versionId = `ver_${Date.now()}`;
+    const resumeId = `res_${Date.now()}`;
+    const userId = existingProfile?.userId || 'usr_101';
 
-  return { resume: newResume, version: newVersion, updatedProfile, log };
+    // 4. Create DATA-003 Resume
+    const newResume: Resume = {
+      id: resumeId,
+      userId,
+      originalFileName: parsedDoc.fileName,
+      fileType: parsedDoc.fileType,
+      fileSize: parsedDoc.fileSize,
+      uploadDate: new Date().toISOString(),
+      currentVersionId: versionId
+    };
+
+    // 5. Create DATA-004 Resume Version
+    const newVersion: ResumeVersion = {
+      id: versionId,
+      resumeId: newResume.id,
+      versionName: `Version ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${parsedDoc.fileName}`,
+      isOriginal: true,
+      createdAt: new Date().toISOString(),
+      profileSnapshot: analysis.extractedProfile,
+      strengths: analysis.strengths,
+      weaknesses: analysis.weaknesses,
+      structureNotes: analysis.structureNotes,
+      matchedKeywords: analysis.keywords,
+      detectedJobRole: analysis.jobRole,
+      rawText: analysis.rawText
+    };
+
+    // 6. Create/Update DATA-002 User Profile
+    const updatedProfile: UserProfile = {
+      id: existingProfile?.id || `prof_${Date.now()}`,
+      userId,
+      headline: analysis.extractedProfile.headline || existingProfile?.headline || `${analysis.jobRole} Professional`,
+      phone: analysis.extractedProfile.phone || existingProfile?.phone || '',
+      location: analysis.extractedProfile.location || existingProfile?.location || '',
+      bio: analysis.extractedProfile.bio || existingProfile?.bio || '',
+      completeness: analysis.extractedProfile.completeness || 85,
+      jobRole: analysis.jobRole,
+      jobRoleEvidence: analysis.jobRoleEvidence,
+      jobRoleConfidence: analysis.jobRoleConfidence,
+      jobRoleNeedsConfirmation: analysis.jobRoleConfidence === 'LOW',
+      education: analysis.extractedProfile.education && analysis.extractedProfile.education.length > 0
+        ? analysis.extractedProfile.education
+        : existingProfile?.education || [],
+      skills: analysis.extractedProfile.skills || existingProfile?.skills || [],
+      technicalSkills: analysis.extractedProfile.technicalSkills || existingProfile?.technicalSkills || [],
+      softSkills: analysis.extractedProfile.softSkills || existingProfile?.softSkills || [],
+      experience: analysis.extractedProfile.experience && analysis.extractedProfile.experience.length > 0
+        ? analysis.extractedProfile.experience
+        : existingProfile?.experience || [],
+      projects: analysis.extractedProfile.projects && analysis.extractedProfile.projects.length > 0
+        ? analysis.extractedProfile.projects
+        : existingProfile?.projects || [],
+      certifications: analysis.extractedProfile.certifications || existingProfile?.certifications || [],
+      achievements: analysis.extractedProfile.achievements || existingProfile?.achievements || [],
+      preferences: existingProfile?.preferences || {
+        targetRoles: [analysis.jobRole],
+        preferredLocation: analysis.extractedProfile.location || 'Remote / Flexible',
+        workMode: 'HYBRID',
+        experienceLevel: 'MID',
+        targetCompanies: []
+      }
+    };
+
+    const durationMs = Date.now() - startTime;
+
+    // 7. Record DATA-027 Agent Execution Log
+    const log: AgentExecutionLog = {
+      id: `log_${Date.now()}`,
+      agentId: 'AG-001',
+      agentName: 'Resume Analysis Agent',
+      timestamp: new Date().toISOString(),
+      status: 'SUCCESS',
+      inputSummary: `Parsed uploaded file: ${parsedDoc.fileName} (${Math.round(parsedDoc.fileSize / 1024)} KB, ${parsedDoc.fileType})`,
+      outputSummary: `Extracted structured profile (${updatedProfile.skills.length} skills, ${updatedProfile.experience.length} roles). Determined job role: "${analysis.jobRole}" (${analysis.jobRoleConfidence} confidence).`,
+      durationMs
+    };
+
+    return { resume: newResume, version: newVersion, updatedProfile, log };
+  } catch (err: any) {
+    const durationMs = Date.now() - startTime;
+
+    // Log execution failure
+    const errorLog: AgentExecutionLog = {
+      id: `log_${Date.now()}`,
+      agentId: 'AG-001',
+      agentName: 'Resume Analysis Agent',
+      timestamp: new Date().toISOString(),
+      status: 'FAILURE',
+      inputSummary: `Resume upload attempt: ${typeof file === 'object' ? file.name : 'Document'}`,
+      outputSummary: `Analysis failed: ${err.message || 'Unknown processing error'}`,
+      durationMs
+    };
+
+    // Attach log to error if possible or throw error directly
+    (err as any).executionLog = errorLog;
+    throw err;
+  }
 };
 
 // ============================================================================

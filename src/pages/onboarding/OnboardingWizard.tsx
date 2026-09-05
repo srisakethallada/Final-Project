@@ -79,8 +79,14 @@ export const OnboardingWizard: React.FC = () => {
     });
 
     setStep(3);
-    // Run AG-001 Resume Analysis
-    await uploadAndAnalyzeResume(selectedFile || 'Sri_Saketh_Software_Engineer_Resume.pdf');
+    // Run AG-001 Resume Analysis on the real uploaded resume
+    if (selectedFile) {
+      try {
+        await uploadAndAnalyzeResume(selectedFile);
+      } catch (err) {
+        console.error('Onboarding resume analysis error:', err);
+      }
+    }
   };
 
   return (

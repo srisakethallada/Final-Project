@@ -36,6 +36,10 @@ export interface UserProfile {
   achievements: string[];
   preferences: UserPreferences;
   completeness: number; // percentage 0-100
+  jobRole?: string; // Analyzed best-supported job role from complete resume
+  jobRoleEvidence?: string[]; // Evidence bullet points supporting the role
+  jobRoleConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  jobRoleNeedsConfirmation?: boolean;
 }
 
 export interface Education {
@@ -109,6 +113,8 @@ export interface ResumeVersion {
   structureNotes: string[];
   matchedKeywords?: string[];
   contentPdfUrl?: string;
+  detectedJobRole?: string;
+  rawText?: string;
 }
 
 export interface Job {

@@ -1,6 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
 import { WorkflowProvider } from './context/WorkflowContext';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
 
 // Layouts & Landing
 import { LandingPage } from './pages/landing/LandingPage';
@@ -8,6 +10,9 @@ import { AppLayout } from './components/layout/AppLayout';
 
 // Auth Pages
 import { SignInPage, SignUpPage, ForgotPasswordPage } from './pages/auth/AuthPages';
+import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
+import { EmailVerificationPage } from './pages/auth/EmailVerificationPage';
+import { AuthCallbackPage } from './pages/auth/AuthCallbackPage';
 
 // Onboarding
 import { OnboardingWizard } from './pages/onboarding/OnboardingWizard';
@@ -30,47 +35,72 @@ import { SettingsPage } from './pages/app/SettingsPage';
 
 export const App: React.FC = () => {
   return (
-    <WorkflowProvider>
-      <Router>
-        <Routes>
-          {/* Public Landing */}
-          <Route path="/" element={<LandingPage />} />
+    <AuthProvider>
+      <WorkflowProvider>
+        <Router>
+          <Routes>
+            {/* Public Landing */}
+            <Route path="/" element={<LandingPage />} />
 
-          {/* Authentication Routes */}
-          <Route path="/auth/signin" element={<SignInPage />} />
-          <Route path="/auth/signup" element={<SignUpPage />} />
-          <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+            {/* Authentication Route Shortcuts */}
+            <Route path="/signin" element={<Navigate to="/auth/signin" replace />} />
+            <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
+            <Route path="/forgot-password" element={<Navigate to="/auth/forgot-password" replace />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-          {/* Onboarding Wizard */}
-          <Route path="/onboarding" element={<OnboardingWizard />} />
+            {/* Direct Authentication System Pages */}
+            <Route path="/auth/signin" element={<SignInPage />} />
+            <Route path="/auth/signup" element={<SignUpPage />} />
+            <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/auth/verify-email" element={<EmailVerificationPage />} />
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-          {/* Authenticated Application Workspace */}
-          <Route path="/app" element={<AppLayout />}>
-            <Route index element={<Navigate to="/app/dashboard" replace />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="assistant" element={<AIAssistantPage />} />
-            <Route path="resume" element={<ResumePage />} />
-            <Route path="resume/analysis" element={<ResumePage />} />
-            <Route path="resume/optimize" element={<ResumeOptimizationPage />} />
-            <Route path="jobs" element={<JobSearchPage />} />
-            <Route path="jobs/:jobId/analysis" element={<JDAnalysisPage />} />
-            <Route path="cover-letter" element={<CoverLetterPage />} />
-            <Route path="applications" element={<ApplicationsPage />} />
-            <Route path="interviews" element={<InterviewsPage />} />
-            <Route path="interview-prep" element={<InterviewsPage />} />
-            <Route path="mock-interview" element={<MockInterviewPage />} />
-            <Route path="feedback" element={<FeedbackCoachPage />} />
-            <Route path="career-coach" element={<FeedbackCoachPage />} />
-            <Route path="notifications" element={<NotificationsPage />} />
-            <Route path="profile" element={<ProfilePage />} />
-            <Route path="settings" element={<SettingsPage />} />
-          </Route>
+            {/* Protected Onboarding Flow */}
+            <Route
+              path="/onboarding"
+              element={
+                <ProtectedRoute>
+                  <OnboardingWizard />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Catch-all Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Router>
-    </WorkflowProvider>
+            {/* Protected Application Workspace */}
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute>
+                  <AppLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/app/dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="assistant" element={<AIAssistantPage />} />
+              <Route path="resume" element={<ResumePage />} />
+              <Route path="resume/analysis" element={<ResumePage />} />
+              <Route path="resume/optimize" element={<ResumeOptimizationPage />} />
+              <Route path="jobs" element={<JobSearchPage />} />
+              <Route path="jobs/:jobId/analysis" element={<JDAnalysisPage />} />
+              <Route path="cover-letter" element={<CoverLetterPage />} />
+              <Route path="applications" element={<ApplicationsPage />} />
+              <Route path="interviews" element={<InterviewsPage />} />
+              <Route path="interview-prep" element={<InterviewsPage />} />
+              <Route path="mock-interview" element={<MockInterviewPage />} />
+              <Route path="feedback" element={<FeedbackCoachPage />} />
+              <Route path="career-coach" element={<FeedbackCoachPage />} />
+              <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="profile" element={<ProfilePage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+
+            {/* Catch-all Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Router>
+      </WorkflowProvider>
+    </AuthProvider>
   );
 };
 

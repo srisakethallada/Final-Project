@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 import {
   User,
   UserProfile,
@@ -44,13 +45,38 @@ import {
 
 import * as services from '../services/agentServices';
 
+export const EMPTY_USER_PROFILE: UserProfile = {
+  id: 'prof_current',
+  userId: 'usr_current',
+  headline: '',
+  phone: '',
+  location: '',
+  bio: '',
+  education: [],
+  skills: [],
+  technicalSkills: [],
+  softSkills: [],
+  experience: [],
+  projects: [],
+  certifications: [],
+  achievements: [],
+  preferences: {
+    targetRoles: [],
+    preferredLocation: '',
+    workMode: 'HYBRID',
+    experienceLevel: 'ENTRY',
+    targetCompanies: []
+  },
+  completeness: 0
+};
+
 interface WorkflowContextType {
   // State Entities
   user: User;
   profile: UserProfile;
   resumes: Resume[];
   resumeVersions: ResumeVersion[];
-  activeResumeVersion: ResumeVersion;
+  activeResumeVersion: ResumeVersion | null;
   jobs: Job[];
   selectedJob: Job | null;
   selectedJD: JobDescription | null;
@@ -71,10 +97,13 @@ interface WorkflowContextType {
   notifications: NotificationItem[];
   agentLogs: AgentExecutionLog[];
   isLoading: boolean;
+  analysisError: string | null;
 
   // Actions / Handlers
   updateProfile: (updated: Partial<UserProfile>) => void;
   uploadAndAnalyzeResume: (file: File | string) => Promise<void>;
+  confirmJobRole: (confirmedRole: string) => void;
+  clearAnalysisError: () => void;
   selectJob: (job: Job) => Promise<void>;
   runJDAnalysis: (job: Job) => Promise<void>;
   approveResumeOptimization: () => Promise<void>;
@@ -91,11 +120,14 @@ interface WorkflowContextType {
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
 
 export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user: authUser, userProfile } = useAuth();
+
   const [user, setUser] = useState<User>(INITIAL_USER);
-  const [profile, setProfile] = useState<UserProfile>(INITIAL_PROFILE);
-  const [resumes, setResumes] = useState<Resume[]>(INITIAL_RESUMES);
-  const [resumeVersions, setResumeVersions] = useState<ResumeVersion[]>(INITIAL_RESUME_VERSIONS);
-  const [activeResumeVersion, setActiveResumeVersion] = useState<ResumeVersion>(INITIAL_RESUME_VERSIONS[0]);
+  const [profile, setProfile] = useState<UserProfile>(EMPTY_USER_PROFILE);
+  const [resumes, setResumes] = useState<Resume[]>([]);
+  const [resumeVersions, setResumeVersions] = useState<ResumeVersion[]>([]);
+  const [activeResumeVersion, setActiveResumeVersion] = useState<ResumeVersion | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   
   const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
   const [selectedJob, setSelectedJob] = useState<Job | null>(INITIAL_JOBS[0]);
@@ -121,8 +153,31 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [learningRoadmap, setLearningRoadmap] = useState<LearningRoadmap>(INITIAL_LEARNING_ROADMAP);
   
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
-  const [agentLogs, setAgentLogs] = useState<AgentExecutionLog[]>(INITIAL_AGENT_LOGS);
+  const [agentLogs, setAgentLogs] = useState<AgentExecutionLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Synchronize authenticated user identity into workflow state
+  useEffect(() => {
+    if (authUser || userProfile) {
+      const displayName = userProfile?.full_name || authUser?.user_metadata?.full_name || authUser?.email?.split('@')[0] || INITIAL_USER.name;
+      const displayEmail = userProfile?.email || authUser?.email || INITIAL_USER.email;
+      const avatarUrl = userProfile?.avatar_url || authUser?.user_metadata?.avatar_url || INITIAL_USER.avatarUrl;
+
+      setUser(prev => ({
+        ...prev,
+        id: authUser?.id || prev.id,
+        name: displayName,
+        email: displayEmail,
+        avatarUrl
+      }));
+
+      setProfile(prev => ({
+        ...prev,
+        id: userProfile?.id || authUser?.id || prev.id,
+        userId: authUser?.id || prev.userId,
+      }));
+    }
+  }, [authUser, userProfile]);
 
   const addLog = (log: AgentExecutionLog) => {
     setAgentLogs(prev => [log, ...prev]);
@@ -132,8 +187,24 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setProfile(prev => ({ ...prev, ...updated }));
   };
 
+  const clearAnalysisError = () => setAnalysisError(null);
+
+  const confirmJobRole = (confirmedRole: string) => {
+    setProfile(prev => ({
+      ...prev,
+      jobRole: confirmedRole,
+      jobRoleConfidence: 'HIGH',
+      jobRoleNeedsConfirmation: false,
+      headline: prev.headline || `${confirmedRole} Professional`
+    }));
+    if (activeResumeVersion) {
+      setActiveResumeVersion(prev => prev ? { ...prev, detectedJobRole: confirmedRole } : null);
+    }
+  };
+
   const uploadAndAnalyzeResume = async (file: File | string) => {
     setIsLoading(true);
+    setAnalysisError(null);
     try {
       const res = await services.analyzeResume(file, profile);
       setResumes(prev => [res.resume, ...prev]);
@@ -141,6 +212,13 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setActiveResumeVersion(res.version);
       setProfile(res.updatedProfile);
       addLog(res.log);
+    } catch (err: any) {
+      console.error('Resume analysis error:', err);
+      setAnalysisError(err.message || 'Failed to analyze resume.');
+      if (err.executionLog) {
+        addLog(err.executionLog);
+      }
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -297,8 +375,11 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       notifications,
       agentLogs,
       isLoading,
+      analysisError,
       updateProfile,
       uploadAndAnalyzeResume,
+      confirmJobRole,
+      clearAnalysisError,
       selectJob,
       runJDAnalysis,
       approveResumeOptimization,

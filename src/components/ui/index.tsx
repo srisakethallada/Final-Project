@@ -281,8 +281,19 @@ export const Input: React.FC<InputProps> = ({ className, error, ...props }) => {
 };
 
 // ============================================================================
-// LOADING SPINNER COMPONENT
+// SKELETON COMPONENT
 // ============================================================================
+export const Skeleton: React.FC<{ className?: string }> = ({ className }) => {
+  return (
+    <div
+      className={cn(
+        'animate-pulse rounded-xl bg-[#1A1A1A] border border-white/5',
+        className
+      )}
+    />
+  );
+};
+
 export const LoadingSpinner: React.FC<{ label?: string }> = ({ label = 'Processing with AI Agent...' }) => {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center text-white">
