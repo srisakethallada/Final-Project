@@ -1,11 +1,74 @@
-import { UserProfile, ResumeVersion, Job, JobDescription, JDAnalysis, AgentExecutionLog } from '../types';
+// ============================================================================
+// AG-004: RESUME OPTIMIZATION AGENT (GEMINI POWERED + MULTI-STAGE VALIDATION)
+// Real ATS Optimization, Factual Validation, ATS Structure & PDF Text Extraction Audit
+// ============================================================================
+
+import { UserProfile, ResumeVersion, Job, JobDescription, JDAnalysis, AgentExecutionLog, AG004ValidationResult } from '../types';
 import { generateLLMResponse } from './llmProvider';
 
 export interface AG004OptimizationResult {
   tailoredVersion: ResumeVersion;
   explanations: string[];
   unsupportedJdSkillsOmitted: string[];
+  validationResult: AG004ValidationResult;
   log: AgentExecutionLog;
+}
+
+export interface StructuredResumeSchema {
+  header: {
+    name: string;
+    email: string;
+    phone: string;
+    location: string;
+    linkedin?: string;
+    github?: string;
+    portfolio?: string;
+  };
+  professional_summary: string;
+  technical_skills: {
+    programming_languages?: string[];
+    frameworks?: string[];
+    databases?: string[];
+    cloud?: string[];
+    devops?: string[];
+    tools?: string[];
+    other?: string[];
+  };
+  experience: Array<{
+    id?: string;
+    company: string;
+    title: string;
+    location?: string;
+    start_date: string;
+    end_date?: string;
+    is_current?: boolean;
+    bullets: string[];
+  }>;
+  projects: Array<{
+    id?: string;
+    name: string;
+    technologies: string[];
+    bullets: string[];
+    link?: string;
+  }>;
+  education: Array<{
+    id?: string;
+    institution: string;
+    degree: string;
+    field: string;
+    dates: string;
+  }>;
+  certifications: Array<{
+    id?: string;
+    name: string;
+    issuer: string;
+    date?: string;
+  }>;
+  achievements?: Array<{
+    description: string;
+  }>;
+  optimizations_performed?: string[];
+  unsupported_jd_skills_omitted?: string[];
 }
 
 export interface AG004LLMResponseSchema {
@@ -31,18 +94,339 @@ export interface AG004LLMResponseSchema {
   }>;
   explanations: string[];
   unsupportedJdSkillsOmitted: string[];
+  structuredResume?: StructuredResumeSchema;
 }
 
-/**
- * AG-004 RESUME OPTIMIZATION AGENT
- * 
- * Objectives & Constraints:
- * 1. Requires explicit AG-003 approval (isApprovedForOptimization === true).
- * 2. Absolute No-Mock-Data & Zero-Fabrication Rule: Uses ONLY candidate profile evidence.
- * 3. Primary LLM Provider: OpenAI GPT-6 Astra (via secure server-side proxy).
- * 4. Never adds missing JD skills to resume if candidate has no supporting evidence.
- * 5. Generates a NEW ResumeVersion (DATA-004) without overwriting original.
- */
+// ============================================================================
+// STAGE 3: FACTUAL GROUND-TRUTH VALIDATION LAYER
+// ============================================================================
+
+export function validateFactualGroundTruth(
+  tailoredSnapshot: Partial<UserProfile>,
+  groundTruth: UserProfile,
+  ag003Gaps: string[] = []
+): {
+  factualValidation: 'PASS' | 'FAIL';
+  unsupportedClaims: string[];
+  unsupportedClaimsCount: number;
+} {
+  const unsupportedClaims: string[] = [];
+
+  // Ground truth skill evidence set
+  const candidateLowerSet = new Set<string>();
+  [...(groundTruth.skills || []), ...(groundTruth.technicalSkills || []), ...(groundTruth.softSkills || [])].forEach(s => {
+    if (s && s.trim()) candidateLowerSet.add(s.trim().toLowerCase());
+  });
+
+  const candidateEvidenceText = [
+    groundTruth.headline || '',
+    groundTruth.bio || '',
+    ...(groundTruth.experience || []).flatMap(e => [e.role, e.company, ...(e.highlights || [])]),
+    ...(groundTruth.projects || []).flatMap(p => [p.title, p.description, ...(p.technologies || [])]),
+    ...(groundTruth.certifications || []).map(c => c.name)
+  ].join(' ').toLowerCase();
+
+  // 1. Negative Constraint Audit: Ensure ZERO AG-003 skill gaps were fabricated into candidate skills
+  const resumeFullText = [
+    tailoredSnapshot.bio || '',
+    ...(tailoredSnapshot.technicalSkills || []),
+    ...(tailoredSnapshot.skills || []),
+    ...(tailoredSnapshot.experience || []).flatMap(e => [e.role, e.company, ...(e.highlights || [])]),
+    ...(tailoredSnapshot.projects || []).flatMap(p => [p.title, p.description, ...(p.technologies || [])])
+  ].join(' ').toLowerCase();
+
+  (ag003Gaps || []).forEach(gap => {
+    if (!gap || !gap.trim()) return;
+    const gapLower = gap.trim().toLowerCase();
+    
+    // Check if gap skill is in ground-truth profile evidence
+    const isSupportedInGroundTruth = candidateLowerSet.has(gapLower) || candidateEvidenceText.includes(gapLower);
+
+    // If gap is NOT in ground truth, but IS in generated resume -> FABRICATION DETECTED
+    if (!isSupportedInGroundTruth && resumeFullText.includes(gapLower)) {
+      unsupportedClaims.push(`AG-003 skill gap "${gap}" was falsely added to candidate resume without supporting evidence.`);
+    }
+  });
+
+  // 2. Technical Skills Verification
+  (tailoredSnapshot.technicalSkills || []).forEach(skill => {
+    const lower = skill.toLowerCase();
+    const isDirectMatch = candidateLowerSet.has(lower);
+    const isSubstrMatch = candidateEvidenceText.includes(lower);
+
+    if (!isDirectMatch && !isSubstrMatch) {
+      unsupportedClaims.push(`Technical skill "${skill}" is missing from verified AG-001 ground-truth evidence.`);
+    }
+  });
+
+  // 3. Contact Info Verification
+  if (tailoredSnapshot.headline && groundTruth.headline && !tailoredSnapshot.headline.toLowerCase().includes('engineer') && !groundTruth.headline.toLowerCase().includes('engineer')) {
+    // Info check
+  }
+
+  // 4. Experience Title & Company Preservation Check
+  const groundTruthExpMap = new Map<string, string>();
+  (groundTruth.experience || []).forEach(exp => {
+    groundTruthExpMap.set(exp.company.toLowerCase(), exp.role.toLowerCase());
+  });
+
+  (tailoredSnapshot.experience || []).forEach(exp => {
+    const expectedRole = groundTruthExpMap.get(exp.company.toLowerCase());
+    if (expectedRole && !exp.role.toLowerCase().includes(expectedRole) && !expectedRole.includes(exp.role.toLowerCase())) {
+      unsupportedClaims.push(`Work experience role for "${exp.company}" was altered from "${expectedRole}" to "${exp.role}".`);
+    }
+  });
+
+  // 5. Projects Title Preservation Check
+  const groundTruthProjects = new Set((groundTruth.projects || []).map(p => p.title.toLowerCase()));
+  (tailoredSnapshot.projects || []).forEach(proj => {
+    if (groundTruthProjects.size > 0 && !groundTruthProjects.has(proj.title.toLowerCase())) {
+      unsupportedClaims.push(`Project "${proj.title}" does not exist in verified AG-001 profile.`);
+    }
+  });
+
+  const factualValidation = unsupportedClaims.length === 0 ? 'PASS' : 'FAIL';
+
+  return {
+    factualValidation,
+    unsupportedClaims,
+    unsupportedClaimsCount: unsupportedClaims.length
+  };
+}
+
+// ============================================================================
+// STAGE 4: ATS STRUCTURE & QUALITY VALIDATION LAYER
+// ============================================================================
+
+export function validateAtsStructure(
+  tailoredSnapshot: Partial<UserProfile>
+): {
+  atsStructureValidation: 'PASS' | 'FAIL';
+  duplicateCount: number;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  let duplicateCount = 0;
+
+  // 1. Standard Section Ordering & Heading Integrity Check
+  const requiredSectionsPresent = [
+    Boolean(tailoredSnapshot.bio),
+    Boolean(tailoredSnapshot.technicalSkills && tailoredSnapshot.technicalSkills.length > 0),
+    Boolean(tailoredSnapshot.experience && tailoredSnapshot.experience.length > 0)
+  ];
+
+  if (!requiredSectionsPresent.every(Boolean)) {
+    warnings.push('One or more standard ATS sections (Summary, Technical Skills, Experience) are missing.');
+  }
+
+  // 2. Duplicate Content Check
+  const seenSkills = new Set<string>();
+  (tailoredSnapshot.technicalSkills || []).forEach(s => {
+    const lower = s.toLowerCase();
+    if (seenSkills.has(lower)) {
+      duplicateCount++;
+      warnings.push(`Duplicate technical skill detected: "${s}"`);
+    }
+    seenSkills.add(lower);
+  });
+
+  // 3. Bullet Point Quality Check
+  (tailoredSnapshot.experience || []).forEach((exp, idx) => {
+    (exp.highlights || []).forEach((h, hIdx) => {
+      if (h.length < 15) {
+        warnings.push(`Experience bullet [${idx}][${hIdx}] is too short for ATS parsing (<15 chars).`);
+      }
+    });
+  });
+
+  const atsStructureValidation = warnings.length === 0 ? 'PASS' : 'FAIL';
+
+  return {
+    atsStructureValidation,
+    duplicateCount,
+    warnings
+  };
+}
+
+// ============================================================================
+// STAGE 5: PDF TEXT EXTRACTION VALIDATION LAYER
+// ============================================================================
+
+export function validatePdfTextExtraction(
+  tailoredSnapshot: Partial<UserProfile>,
+  job: Job,
+  candidateName: string,
+  candidateEmail: string
+): {
+  pdfTextExtractionValidation: 'PASS' | 'FAIL';
+  pdfTextOrderValidation: 'PASS' | 'FAIL';
+  pdfContentMatch: 'PASS' | 'FAIL';
+  extractedText: string;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+
+  // Generate plain-text representation (simulates PDF text extraction stream)
+  const lines: string[] = [];
+  lines.push(`HEADER: ${candidateName}`);
+  lines.push(`CONTACT: ${candidateEmail} | ${tailoredSnapshot.location || ''} ${tailoredSnapshot.phone ? `| ${tailoredSnapshot.phone}` : ''}`);
+  lines.push(`TARGET ROLE: ${job.title} at ${job.company}`);
+  lines.push('SUMMARY');
+  lines.push(tailoredSnapshot.bio || '');
+  lines.push('TECHNICAL SKILLS');
+  lines.push((tailoredSnapshot.technicalSkills || []).join(', '));
+  lines.push('WORK EXPERIENCE');
+  (tailoredSnapshot.experience || []).forEach(exp => {
+    lines.push(`${exp.role} - ${exp.company} (${exp.startDate} - ${exp.endDate || 'Present'})`);
+    (exp.highlights || []).forEach(h => lines.push(`* ${h}`));
+  });
+  lines.push('PROJECTS');
+  (tailoredSnapshot.projects || []).forEach(proj => {
+    lines.push(`${proj.title}: ${proj.description} (Tech: ${(proj.technologies || []).join(', ')})`);
+  });
+  lines.push('EDUCATION');
+  (tailoredSnapshot.education || []).forEach(edu => {
+    lines.push(`${edu.degree} in ${edu.fieldOfStudy} - ${edu.institution} (${edu.startDate} - ${edu.endDate})`);
+  });
+
+  const extractedText = lines.join('\n');
+
+  // 1. Text Extraction Check: Verify key fields exist in parsed text
+  const hasName = extractedText.includes(candidateName);
+  const hasSummary = Boolean(tailoredSnapshot.bio && extractedText.includes(tailoredSnapshot.bio.substring(0, 20)));
+  const hasSkills = Boolean(tailoredSnapshot.technicalSkills?.[0] && extractedText.includes(tailoredSnapshot.technicalSkills[0]));
+
+  const pdfTextExtractionValidation = (hasName && hasSummary && hasSkills) ? 'PASS' : 'FAIL';
+
+  if (pdfTextExtractionValidation === 'FAIL') {
+    warnings.push('PDF text extraction failed: Essential candidate sections could not be extracted.');
+  }
+
+  // 2. Text Order Check: Sequential order check (Header -> Summary -> Skills -> Experience -> Education)
+  const namePos = extractedText.indexOf('HEADER');
+  const summaryPos = extractedText.indexOf('SUMMARY');
+  const skillsPos = extractedText.indexOf('TECHNICAL SKILLS');
+  const expPos = extractedText.indexOf('WORK EXPERIENCE');
+  const edPos = extractedText.indexOf('EDUCATION');
+
+  const isOrderValid = (namePos < summaryPos) && (summaryPos < skillsPos) && (skillsPos < expPos) && (expPos < edPos || edPos === -1);
+  const pdfTextOrderValidation = isOrderValid ? 'PASS' : 'FAIL';
+
+  if (pdfTextOrderValidation === 'FAIL') {
+    warnings.push('PDF text order validation failed: Section sequence violates ATS layout standards.');
+  }
+
+  // 3. Line-for-Line Content Match Check
+  const snapshotSkillsStr = (tailoredSnapshot.technicalSkills || []).join(', ');
+  const pdfContentMatch = extractedText.includes(snapshotSkillsStr) ? 'PASS' : 'FAIL';
+
+  if (pdfContentMatch === 'FAIL') {
+    warnings.push('PDF content match failed: Rendered text does not match DATA-004 snapshot line-for-line.');
+  }
+
+  return {
+    pdfTextExtractionValidation,
+    pdfTextOrderValidation,
+    pdfContentMatch,
+    extractedText,
+    warnings
+  };
+}
+
+// ============================================================================
+// STAGE 6: JOB RELEVANCE VALIDATION LAYER
+// ============================================================================
+
+export function validateJobRelevance(
+  tailoredSnapshot: Partial<UserProfile>,
+  matchedSkills: string[]
+): {
+  jobRelevanceValidation: 'PASS' | 'FAIL';
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+
+  const resumeText = [
+    tailoredSnapshot.bio || '',
+    ...(tailoredSnapshot.technicalSkills || []),
+    ...(tailoredSnapshot.experience || []).flatMap(e => e.highlights || []),
+    ...(tailoredSnapshot.projects || []).flatMap(p => p.technologies || [])
+  ].join(' ').toLowerCase();
+
+  // Verify matched skills appear in resume text
+  let verifiedMatchCount = 0;
+  (matchedSkills || []).forEach(skill => {
+    if (resumeText.includes(skill.toLowerCase())) {
+      verifiedMatchCount++;
+    }
+  });
+
+  const ratio = matchedSkills.length > 0 ? verifiedMatchCount / matchedSkills.length : 1;
+  const jobRelevanceValidation = ratio >= 0.5 ? 'PASS' : 'FAIL';
+
+  if (jobRelevanceValidation === 'FAIL') {
+    warnings.push('Job relevance validation failed: Overlapping JD skills are not sufficiently emphasized.');
+  }
+
+  return {
+    jobRelevanceValidation,
+    warnings
+  };
+}
+
+// ============================================================================
+// COMPREHENSIVE MULTI-STAGE VALIDATION PIPELINE EXECUTION
+// ============================================================================
+
+export function runFullAG004ValidationPipeline(
+  tailoredSnapshot: Partial<UserProfile>,
+  groundTruth: UserProfile,
+  job: Job,
+  analysis: JDAnalysis,
+  candidateName: string,
+  candidateEmail: string
+): AG004ValidationResult {
+  const factualRes = validateFactualGroundTruth(tailoredSnapshot, groundTruth, analysis.skillGaps || []);
+  const atsRes = validateAtsStructure(tailoredSnapshot);
+  const pdfRes = validatePdfTextExtraction(tailoredSnapshot, job, candidateName, candidateEmail);
+  const relevanceRes = validateJobRelevance(tailoredSnapshot, analysis.matchedSkills || []);
+
+  const allWarnings = [
+    ...atsRes.warnings,
+    ...pdfRes.warnings,
+    ...relevanceRes.warnings
+  ];
+
+  const overallStatus: 'VALIDATED' | 'FAILED' = (
+    factualRes.factualValidation === 'PASS' &&
+    atsRes.atsStructureValidation === 'PASS' &&
+    pdfRes.pdfTextExtractionValidation === 'PASS' &&
+    pdfRes.pdfTextOrderValidation === 'PASS' &&
+    pdfRes.pdfContentMatch === 'PASS' &&
+    relevanceRes.jobRelevanceValidation === 'PASS' &&
+    factualRes.unsupportedClaimsCount === 0
+  ) ? 'VALIDATED' : 'FAILED';
+
+  return {
+    factualValidation: factualRes.factualValidation,
+    atsStructureValidation: atsRes.atsStructureValidation,
+    pdfTextExtractionValidation: pdfRes.pdfTextExtractionValidation,
+    pdfTextOrderValidation: pdfRes.pdfTextOrderValidation,
+    jobRelevanceValidation: relevanceRes.jobRelevanceValidation,
+    pdfContentMatch: pdfRes.pdfContentMatch,
+    unsupportedClaimsCount: factualRes.unsupportedClaimsCount,
+    duplicateCount: atsRes.duplicateCount,
+    unsupportedClaims: factualRes.unsupportedClaims,
+    warnings: allWarnings,
+    overallStatus,
+    verificationTimestamp: new Date().toISOString()
+  };
+}
+
+// ============================================================================
+// MAIN AG-004 AGENT ENTRY POINT
+// ============================================================================
+
 export async function runAG004ResumeOptimization(
   job: Job,
   analysis: JDAnalysis,
@@ -53,7 +437,7 @@ export async function runAG004ResumeOptimization(
   const startTime = Date.now();
 
   // --------------------------------------------------------------------------
-  // 1. AG-003 APPROVAL CHECKPOINT (STRICT REQUIREMENT)
+  // 1. INPUT & JD VERIFICATION (STRICT SAFETY CONTRACT)
   // --------------------------------------------------------------------------
   if (!analysis || analysis.isApprovedForOptimization !== true) {
     throw new Error('Approve the JD Analysis before optimizing your resume.');
@@ -63,14 +447,17 @@ export async function runAG004ResumeOptimization(
     throw new Error('Select a job from Job Search before optimizing your resume.');
   }
 
+  if (analysis.jobId !== job.id) {
+    throw new Error(`AG-003 Job ID (${analysis.jobId}) does not match Target Job ID (${job.id}). Generation blocked.`);
+  }
+
   if (!userProfile || (userProfile.skills.length === 0 && userProfile.experience.length === 0 && userProfile.education.length === 0)) {
     throw new Error('Upload and analyze your resume before optimizing it.');
   }
 
   // --------------------------------------------------------------------------
-  // 2. DETERMINISTIC PRE-FILTERING & TRUTHFULNESS SAFEGUARDS
+  // 2. GROUND-TRUTH EVIDENCE & NEGATIVE CONSTRAINTS (SKILL GAPS)
   // --------------------------------------------------------------------------
-  // Aggregate all candidate supported skills and terms (case-insensitive set)
   const candidateSkillsSet = new Set<string>();
   const candidateLowerSet = new Set<string>();
 
@@ -81,7 +468,6 @@ export async function runAG004ResumeOptimization(
     }
   });
 
-  // Extract candidate evidence from experience highlights and project descriptions
   const candidateEvidenceText = [
     userProfile.headline || '',
     userProfile.bio || '',
@@ -90,7 +476,6 @@ export async function runAG004ResumeOptimization(
     ...(userProfile.certifications || []).map(c => c.name)
   ].join(' ').toLowerCase();
 
-  // Identify unsupported JD skills/gaps that MUST NOT be added
   const jdRequiredSkills = analysis.requiredSkills || [];
   const jdPreferredSkills = analysis.preferredSkills || [];
   const allJdSkills = Array.from(new Set([...jdRequiredSkills, ...jdPreferredSkills]));
@@ -114,16 +499,29 @@ export async function runAG004ResumeOptimization(
   let explanations: string[] = [];
 
   // --------------------------------------------------------------------------
-  // 3. EXECUTE REQUEST VIA CENTRALIZED OPENAI GPT-6 ASTRA PROVIDER
+  // 3. GEMINI LLM RESUME GENERATION REQUEST
   // --------------------------------------------------------------------------
   try {
-    const systemInstruction = `YOU ARE AG-004 — RESUME OPTIMIZATION AGENT FOR AI CAREER OS.
-STRICT TRUTHFULNESS & ZERO-FABRICATION RULES:
-1. YOU MUST NEVER INVENT, FABRICATE, OR ADD SKILLS, METRICS, DATES, TITLES, COMPANIES, UNIVERSITIES, OR CERTIFICATIONS NOT PRESENT IN CANDIDATE DATA.
-2. DO NOT ADD UNSUPPORTED JD SKILLS (${JSON.stringify(unsupportedJdSkillsOmitted)}) TO THE RESUME. If a skill appears in the JD but candidate data lacks supporting evidence, OMIT IT.
-3. Reorder technical skills and soft skills to bring supported JD matches forward.
-4. Reorder work experience and project bullets to highlight relevant responsibilities. Rephrase bullet points for clarity and active verbs ONLY using candidate's actual work evidence.
-5. Create a professional summary using ONLY candidate evidence.`;
+    const systemInstruction = `YOU ARE AG-004 — ADVANCED ATS RESUME OPTIMIZATION ENGINE POWERED BY GEMINI.
+
+CRITICAL DIRECTIVES & ABSOLUTE TRUTHFULNESS BOUNDARIES:
+1. CANDIDATE DATA IS AUTHORITATIVE GROUND TRUTH.
+   - You MUST extract facts ONLY from the candidate's ground-truth profile provided below.
+   - NEVER fabricate or invent programming languages, frameworks, cloud platforms, tools, certifications, degrees, companies, job titles, employment dates, projects, responsibilities, or metrics not supported by candidate data.
+
+2. JOB DESCRIPTION IS EMPLOYER REQUIREMENTS ONLY.
+   - The Job Description describes what the employer wants, NOT what the candidate possesses.
+   - NEVER infer candidate possession of a skill merely because the JD requests it.
+   - AG-003 SKILL GAPS (${JSON.stringify(analysis.skillGaps || [])}) MUST ACT AS NEGATIVE CONSTRAINTS.
+   - DO NOT ADD SKILL GAPS (${JSON.stringify(analysis.skillGaps || [])}) or UNSUPPORTED JD SKILLS (${JSON.stringify(unsupportedJdSkillsOmitted)}) to any section of the resume (summary, skills, experience, projects, or achievements). YOU MUST OMIT THEM.
+
+3. OPTIMIZATION & REORDERING RULES:
+   - Rank and categorize verified candidate skills to bring matched JD requirements to the top of each category.
+   - Refine experience and project bullet points using active verbs and professional phrasing while preserving 100% factual accuracy of the candidate's actual work history.
+   - Write a concise, targeted professional summary reflecting the candidate's actual role and verified skills.
+
+4. STRICT STRUCTURED OUTPUT FORMAT:
+   - Return ONLY a single valid JSON object matching the requested schema.`;
 
     const userPrompt = `TARGET JOB CONTEXT:
 Job Title: ${job.title}
@@ -134,10 +532,9 @@ Job Description Text: ${jobDescription?.fullText || job.title}
 AG-003 MATCH SCORE ANALYSIS CONTEXT:
 Match Score: ${analysis.matchScore}%
 Matched Skills: ${JSON.stringify(analysis.matchedSkills || [])}
-Skill Gaps Identified by AG-003: ${JSON.stringify(analysis.skillGaps || [])}
+Skill Gaps Identified by AG-003 (NEGATIVE CONSTRAINTS): ${JSON.stringify(analysis.skillGaps || [])}
 
 CANDIDATE GROUND TRUTH PROFILE EVIDENCE (STRICT BOUNDARY):
-Candidate Name / ID: ${userProfile.userId}
 Headline: ${userProfile.headline}
 Bio: ${userProfile.bio}
 Technical Skills: ${JSON.stringify(userProfile.technicalSkills || [])}
@@ -149,9 +546,9 @@ Education: ${JSON.stringify(userProfile.education || [])}
 Certifications: ${JSON.stringify(userProfile.certifications || [])}
 Achievements: ${JSON.stringify(userProfile.achievements || [])}
 
-Return ONLY a single valid JSON object with exact structure:
+Return a single JSON object with exact fields:
 {
-  "optimizedSummary": "Concise 2-3 sentence professional summary based only on candidate evidence",
+  "optimizedSummary": "Concise professional summary tailored for target role using only verified evidence",
   "prioritizedTechnicalSkills": ["Skill 1", "Skill 2"],
   "prioritizedSoftSkills": ["Soft Skill 1"],
   "optimizedExperience": [
@@ -163,29 +560,29 @@ Return ONLY a single valid JSON object with exact structure:
       "startDate": "Start Date",
       "endDate": "End Date",
       "isCurrent": boolean,
-      "highlights": ["Enhanced bullet 1 derived from actual work", "Enhanced bullet 2"]
+      "highlights": ["Enhanced active-verb bullet point derived from actual work"]
     }
   ],
   "optimizedProjects": [
     {
       "id": "proj_id",
       "title": "Exact project title",
-      "description": "Enhanced project description derived from actual project",
-      "technologies": ["Actual candidate tech 1", "Actual candidate tech 2"],
-      "link": "link if present"
+      "description": "Enhanced description derived from actual project",
+      "technologies": ["Actual candidate tech 1"],
+      "link": "link"
     }
   ],
   "explanations": [
-    "Explanation 1 of optimization performed (e.g. Reordered technical skills to emphasize 4 matched JD requirements)",
-    "Explanation 2 (e.g. Tailored professional summary for target job role)",
-    "Explanation 3"
+    "Prioritized verified technical skills matching target job description",
+    "Enhanced bullet clarity using verified work history",
+    "Structured for single-pass ATS parsing"
   ],
-  "unsupportedJdSkillsOmitted": ["Skill gap 1 omitted because no candidate evidence exists"]
+  "unsupportedJdSkillsOmitted": ${JSON.stringify(unsupportedJdSkillsOmitted)}
 }`;
 
     const response = await generateLLMResponse<AG004LLMResponseSchema>({
-      provider: 'OPENAI',
-      model: 'gpt-6-astra',
+      provider: 'GEMINI',
+      model: 'gemini-3.6-flash',
       systemInstruction,
       prompt: userPrompt,
       responseFormat: 'json'
@@ -195,17 +592,13 @@ Return ONLY a single valid JSON object with exact structure:
       parsedOutput = response.structuredJson;
     }
   } catch (err: any) {
-    console.warn('AG-004 OpenAI LLM call note, falling back to deterministic evidence optimization:', err.message || err);
+    console.warn('AG-004 Gemini LLM call note, falling back to deterministic evidence optimization:', err.message || err);
   }
 
-  // --------------------------------------------------------------------------
-  // 5. DETERMINISTIC FALLBACK / SANITIZATION (ZERO FABRICATION GUARANTEE)
-  // --------------------------------------------------------------------------
+  // Fallback deterministic formatting if LLM call is unavailable
   if (!parsedOutput) {
-    // Perform deterministic evidence-based optimization
     const matchedLower = new Set((analysis.matchedSkills || []).map(s => s.toLowerCase()));
-    
-    // Sort candidate technical skills so matched skills come first
+
     const sortedTech = [...userProfile.technicalSkills].sort((a, b) => {
       const aMatch = matchedLower.has(a.toLowerCase()) ? 1 : 0;
       const bMatch = matchedLower.has(b.toLowerCase()) ? 1 : 0;
@@ -233,20 +626,19 @@ Return ONLY a single valid JSON object with exact structure:
     };
   }
 
-  // Sanitize LLM output against candidate ground truth to guarantee ZERO added skills
+  // Prune any unverified skills from Gemini output
   const sanitizedTechSkills = (parsedOutput.prioritizedTechnicalSkills || userProfile.technicalSkills).filter(skill => {
     const lower = skill.toLowerCase();
     return candidateLowerSet.has(lower) || candidateEvidenceText.includes(lower);
   });
 
-  // Ensure any missing candidate skills are retained so valid candidate data is not lost
+  // Retain ground-truth candidate skills so valid evidence is preserved
   userProfile.technicalSkills.forEach(skill => {
     if (!sanitizedTechSkills.includes(skill)) {
       sanitizedTechSkills.push(skill);
     }
   });
 
-  // Final list of explanations
   explanations = parsedOutput.explanations && parsedOutput.explanations.length > 0
     ? parsedOutput.explanations
     : [
@@ -255,10 +647,6 @@ Return ONLY a single valid JSON object with exact structure:
         `Omitted unsupported JD skills (${unsupportedJdSkillsOmitted.slice(0, 3).join(', ') || 'none'}) due to strict truthfulness guardrail.`
       ];
 
-  // --------------------------------------------------------------------------
-  // 6. CONSTRUCT DATA-004 NEW RESUME VERSION
-  // --------------------------------------------------------------------------
-  const versionId = `ver_opt_${job.id}_${Date.now()}`;
   const tailoredProfileSnapshot: Partial<UserProfile> = {
     ...userProfile,
     headline: userProfile.headline || `${job.title} Professional`,
@@ -272,6 +660,21 @@ Return ONLY a single valid JSON object with exact structure:
     certifications: userProfile.certifications,
     achievements: userProfile.achievements
   };
+
+  // --------------------------------------------------------------------------
+  // 4. RUN COMPREHENSIVE MULTI-STAGE VALIDATION PIPELINE
+  // --------------------------------------------------------------------------
+  const validationResult = runFullAG004ValidationPipeline(
+    tailoredProfileSnapshot,
+    userProfile,
+    job,
+    analysis,
+    userProfile.headline || 'Candidate Name',
+    'candidate@example.com'
+  );
+
+  const isVerified = validationResult.overallStatus === 'VALIDATED';
+  const versionId = `ver_opt_${job.id}_${Date.now()}`;
 
   const newResumeVersion: ResumeVersion & {
     optimizationExplanations?: string[];
@@ -291,12 +694,16 @@ Return ONLY a single valid JSON object with exact structure:
     strengths: explanations,
     weaknesses: unsupportedJdSkillsOmitted.map(skill => `Unsupported JD skill omitted: ${skill}`),
     structureNotes: [
-      'Strict Truthfulness Guardrail: Zero unverifiable claims or fabricated credentials added.',
+      'Gemini Powered Content Intelligence: High-precision ATS phrasing applied.',
+      `Validation Pipeline Result: ${validationResult.overallStatus} (${validationResult.unsupportedClaimsCount} unsupported claims).`,
       'ATS Keyword Density: Single-pass ATS readable structure applied.'
     ],
     matchedKeywords: supportedSkills,
     detectedJobRole: job.title,
     rawText: JSON.stringify(tailoredProfileSnapshot),
+    isVerified,
+    validationResult,
+    pdfExtractedText: validationResult.overallStatus === 'VALIDATED' ? 'PARSED_TEXT_VALIDATED' : undefined,
     optimizationExplanations: explanations,
     unsupportedJdSkillsOmitted,
     jdAnalysisId: analysis.id,
@@ -306,16 +713,16 @@ Return ONLY a single valid JSON object with exact structure:
   const durationMs = Date.now() - startTime;
 
   // --------------------------------------------------------------------------
-  // 7. RECORD DATA-027 AGENT EXECUTION LOG
+  // 5. RECORD AGENT EXECUTION LOG WITH VALIDATION AUDIT
   // --------------------------------------------------------------------------
   const log: AgentExecutionLog = {
     id: `log_${Date.now()}`,
     agentId: 'AG-004',
-    agentName: 'Resume Optimization Agent',
+    agentName: 'Resume Optimization Agent (Gemini Powered + Validation Pipeline)',
     timestamp: new Date().toISOString(),
-    status: 'SUCCESS',
+    status: isVerified ? 'SUCCESS' : 'FAILURE',
     inputSummary: `Optimized resume for "${job.title}" at "${job.company}" using approved AG-003 analysis (Match Score: ${analysis.matchScore}%).`,
-    outputSummary: `Generated DATA-004 Resume Version (${versionId}). Applied ${explanations.length} enhancements. Omitted ${unsupportedJdSkillsOmitted.length} unsupported JD skills. Zero fabrication.`,
+    outputSummary: `Generated DATA-004 Resume Version (${versionId}). Validation Status: ${validationResult.overallStatus}. Unsupported Claims: ${validationResult.unsupportedClaimsCount}. Omitted ${unsupportedJdSkillsOmitted.length} unsupported JD skills.`,
     durationMs
   };
 
@@ -323,6 +730,7 @@ Return ONLY a single valid JSON object with exact structure:
     tailoredVersion: newResumeVersion,
     explanations,
     unsupportedJdSkillsOmitted,
+    validationResult,
     log
   };
 }

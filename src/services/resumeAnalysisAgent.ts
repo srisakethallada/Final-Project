@@ -134,15 +134,19 @@ Extract the complete structured profile JSON according to all instructions. Make
   }
 
   // Call Server-Side API endpoint
-  let response: Response;
-  const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
-  try {
-    response = await fetch(`${baseUrl}/api/analyze-resume`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+  let response: Response | null = null;
+  let lastErr: any = null;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const currentHost = attempt % 2 === 1 ? 'http://localhost:3000' : 'http://127.0.0.1:3000';
+      const targetUrl = typeof window !== 'undefined' ? '/api/analyze-resume' : `${currentHost}/api/analyze-resume`;
+      response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
         contents: [
           {
             role: 'user',
@@ -158,13 +162,16 @@ Extract the complete structured profile JSON according to all instructions. Make
         }
       })
     });
-  } catch (netErr: any) {
-    throw new Error(`AG-001 LLM Server Connection Failed: ${netErr.message || 'Network error reaching backend API server.'}`);
+    if (response && response.ok) break;
+    } catch (netErr: any) {
+      lastErr = netErr;
+      if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+    }
   }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    let message = `LLM Service Error (${response.status})`;
+  if (!response || !response.ok) {
+    const errorText = response ? await response.text().catch(() => '') : '';
+    let message = response ? `LLM Service Error (${response.status})` : (lastErr?.message || 'Network error reaching backend API server.');
     try {
       const errJson = JSON.parse(errorText);
       message = errJson?.error?.message || message;

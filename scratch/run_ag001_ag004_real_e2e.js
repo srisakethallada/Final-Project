@@ -125,6 +125,13 @@ AWS Certified Cloud Practitioner (2023)
   console.log(`✓ AG-001 Output -> Extracted Skills (${userProfile.skills.length}): ${userProfile.skills.join(', ')}`);
   console.log(`✓ AG-001 Output -> User Profile ID: ${userProfile.id}`);
 
+  const candidateLowerSet = new Set((userProfile.skills || []).map(s => s.toLowerCase()));
+  const candidateEvidenceText = [
+    ...(userProfile.skills || []),
+    ...(userProfile.experience || []).flatMap(e => [e.company, e.title, e.description, ...(e.bulletPoints || [])]),
+    ...(userProfile.projects || []).flatMap(p => [p.name, p.description, ...(p.technologies || [])])
+  ].filter(Boolean).join(' ').toLowerCase();
+
   if (userProfile.jobRole && userProfile.skills.length > 0) {
     testResults.push({ step: 1, agent: 'AG-001', input: 'Real Resume PDF', output: `Profile (${userProfile.jobRole})`, persistence: 'Verified', status: 'PASS' });
   } else {
@@ -145,7 +152,11 @@ AWS Certified Cloud Practitioner (2023)
   };
 
   console.log(`Executing real JSearch API call with query "${userProfile.jobRole}" in location "${userProfile.preferences.city}, ${userProfile.preferences.state}, ${userProfile.preferences.country}"...`);
-  const searchResult = await fetchJobsFromApi(userProfile, userProfile.jobRole, jobLocationFilter);
+  let searchResult = await fetchJobsFromApi(userProfile, userProfile.jobRole, jobLocationFilter);
+  if (!searchResult.jobs || searchResult.jobs.length === 0) {
+    console.log(`Query "${userProfile.jobRole}" yielded 0 location-filtered jobs. Retrying with fallback query "Full Stack Engineer"...`);
+    searchResult = await fetchJobsFromApi(userProfile, "Full Stack Engineer", jobLocationFilter);
+  }
   const realJobs = searchResult.jobs;
   const realJds = searchResult.jds;
 
@@ -250,31 +261,59 @@ AWS Certified Cloud Practitioner (2023)
 
   console.log(`✓ AG-004 DATA-004 Resume Version Created: "${tailoredVersion.id}"`);
   console.log(`✓ Tailored for Job ID: "${tailoredVersion.tailoredForJobId}" at "${tailoredVersion.tailoredForCompanyName}"`);
-  console.log(`✓ ATS Compatibility Score: ${tailoredVersion.atsCompatibilityScore}%`);
+  console.log(`✓ Validation Result Overall Status: ${ag004Result.validationResult.overallStatus}`);
+  console.log(`  - Unsupported Claims: ${JSON.stringify(ag004Result.validationResult.unsupportedClaims)}`);
+  console.log(`  - Factual Validation: ${ag004Result.validationResult.factualValidation}`);
+  console.log(`  - ATS Structure Validation: ${ag004Result.validationResult.atsStructureValidation}`);
+  console.log(`  - PDF Text Extraction Validation: ${ag004Result.validationResult.pdfTextExtractionValidation}`);
+  console.log(`  - PDF Text Order Validation: ${ag004Result.validationResult.pdfTextOrderValidation}`);
+  console.log(`  - Job Relevance Validation: ${ag004Result.validationResult.jobRelevanceValidation}`);
+  console.log(`  - PDF Content Match: ${ag004Result.validationResult.pdfContentMatch}`);
+  console.log(`  - Unsupported Claims Count: ${ag004Result.validationResult.unsupportedClaimsCount}`);
 
   // ============================================================================
-  // STEP 5: ANTI-FABRICATION & TRUTHFULNESS AUDIT
+  // STEP 5: ANTI-FABRICATION & MULTI-STAGE VALIDATION AUDIT
   // ============================================================================
-  console.log("\n--- STEP 5: Strict Anti-Fabrication Guardrail Audit ---");
+  console.log("\n--- STEP 5: Strict Multi-Stage Validation & Negative Constraint Audit ---");
   const tailoredSkills = tailoredVersion.profileSnapshot.technicalSkills.map(s => s.toLowerCase());
-  const userVerifiedSkills = userProfile.technicalSkills.map(s => s.toLowerCase());
 
   let fabricationDetected = false;
   for (const skill of tailoredSkills) {
-    if (!userVerifiedSkills.includes(skill)) {
+    const isDirectMatch = candidateLowerSet.has(skill);
+    const isSubstrMatch = candidateEvidenceText.includes(skill);
+
+    if (!isDirectMatch && !isSubstrMatch) {
       console.error(`❌ FABRICATION DETECTED: Skill "${skill}" present in tailored resume but missing from user profile!`);
       fabricationDetected = true;
     }
   }
 
-  if (!fabricationDetected) {
-    console.log("✓ Anti-Fabrication Audit PASSED: 100% of tailored skills are strictly verified from the ground-truth profile.");
+  // Negative Constraint Audit: Ensure none of AG-003 skill gaps were fabricated into the resume
+  const resumeFullText = [
+    tailoredVersion.profileSnapshot.bio || '',
+    ...(tailoredVersion.profileSnapshot.technicalSkills || []),
+    ...(tailoredVersion.profileSnapshot.experience || []).flatMap(e => [e.role, e.company, ...(e.highlights || [])]),
+    ...(tailoredVersion.profileSnapshot.projects || []).flatMap(p => [p.title, p.description, ...(p.technologies || [])])
+  ].join(' ').toLowerCase();
+
+  let gapFabricationDetected = false;
+  (ag003Analysis.skillGaps || []).forEach(gap => {
+    const gapLower = gap.toLowerCase();
+    const isSupported = candidateLowerSet.has(gapLower) || candidateEvidenceText.includes(gapLower);
+    if (!isSupported && resumeFullText.includes(gapLower)) {
+      console.error(`❌ NEGATIVE CONSTRAINT VIOLATION: Skill gap "${gap}" was falsely inserted into generated resume!`);
+      gapFabricationDetected = true;
+    }
+  });
+
+  if (!fabricationDetected && !gapFabricationDetected) {
+    console.log("✓ Anti-Fabrication & Negative Constraint Audit PASSED: 100% of tailored skills are strictly verified from ground truth.");
   }
 
-  if (tailoredVersion.tailoredForJobId === selectedJob.id && !fabricationDetected) {
-    testResults.push({ step: 4, agent: 'AG-004', input: `Approved AG-003 + Profile`, output: `DATA-004 Version: ${tailoredVersion.id}`, persistence: 'Verified', status: 'PASS' });
+  if (tailoredVersion.tailoredForJobId === selectedJob.id && !fabricationDetected && !gapFabricationDetected && ag004Result.validationResult.overallStatus === 'VALIDATED') {
+    testResults.push({ step: 4, agent: 'AG-004', input: `Approved AG-003 + Profile`, output: `DATA-004 Version: ${tailoredVersion.id} (VALIDATED)`, persistence: 'Verified', status: 'PASS' });
   } else {
-    testResults.push({ step: 4, agent: 'AG-004', input: `Approved AG-003 + Profile`, output: 'Optimization Failed', persistence: 'Failed', status: 'FAIL' });
+    testResults.push({ step: 4, agent: 'AG-004', input: `Approved AG-003 + Profile`, output: 'Validation Failed', persistence: 'Failed', status: 'FAIL' });
   }
 
   // ============================================================================

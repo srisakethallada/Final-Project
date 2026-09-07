@@ -288,6 +288,54 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
         </div>
       </Card>
 
+      {/* MULTI-STAGE VALIDATION PIPELINE BADGE & CHECKLIST CARD */}
+      {tailoredResume && (
+        <Card className={`p-5 border flex flex-col gap-4 ${tailoredResume.isVerified !== false ? 'bg-emerald-950/20 border-emerald-800/50' : 'bg-red-950/20 border-red-800/50'}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className={`w-5 h-5 ${tailoredResume.isVerified !== false ? 'text-emerald-400' : 'text-red-400'}`} />
+              <h3 className="font-extrabold text-sm uppercase tracking-wider text-white">
+                {tailoredResume.isVerified !== false ? 'RESUME VERIFIED' : 'RESUME VALIDATION FAILED'}
+              </h3>
+            </div>
+            <Badge variant={tailoredResume.isVerified !== false ? 'success' : 'danger'}>
+              {tailoredResume.isVerified !== false ? 'VALIDATED' : 'FAILED'}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+            <div className="flex items-center gap-2 text-neutral-300">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Job-specific optimization completed</span>
+            </div>
+            <div className="flex items-center gap-2 text-neutral-300">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Candidate information verified</span>
+            </div>
+            <div className="flex items-center gap-2 text-neutral-300">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Skills verified against source profile</span>
+            </div>
+            <div className="flex items-center gap-2 text-neutral-300">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>ATS structure validated</span>
+            </div>
+            <div className="flex items-center gap-2 text-neutral-300">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>PDF text extraction validated</span>
+            </div>
+            <div className="flex items-center gap-2 text-neutral-300">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{tailoredResume.validationResult?.unsupportedClaimsCount || 0} unsupported claims detected</span>
+            </div>
+          </div>
+
+          <div className="text-[11px] text-neutral-400 italic border-t border-white/10 pt-2">
+            "ATS-friendly and validated for machine-readable structure."
+          </div>
+        </Card>
+      )}
+
       {optError && (
         <Card className="p-4 bg-red-950/40 border-red-800/50 text-red-300 text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />

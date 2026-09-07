@@ -275,23 +275,38 @@ export const fetchJobsFromApi = async (
   const searchQuery = buildSearchQuery(profile, filterQuery, filterLocation);
   const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
 
-  const response = await fetch(`${baseUrl}/api/search-jobs`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      query: searchQuery,
-      page: 1
-    })
-  });
+  let response: Response | null = null;
+  let lastErr: any = null;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    let message = `Job Search API Error (${response.status})`;
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const errJson = JSON.parse(errorText);
-      message = errJson?.error?.message || message;
+      const currentHost = attempt % 2 === 1 ? 'http://localhost:3000' : 'http://127.0.0.1:3000';
+      const targetUrl = typeof window !== 'undefined' ? '/api/search-jobs' : `${currentHost}/api/search-jobs`;
+      response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: searchQuery,
+          page: 1
+        })
+      });
+      if (response && response.ok) break;
+    } catch (err: any) {
+      lastErr = err;
+      if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+    }
+  }
+
+  if (!response || !response.ok) {
+    const errorText = response ? await response.text().catch(() => '') : '';
+    let message = response ? `Job Search API Error (${response.status})` : (lastErr?.message || 'Job Search network request failed');
+    try {
+      if (errorText) {
+        const errJson = JSON.parse(errorText);
+        message = errJson?.error?.message || message;
+      }
     } catch {}
     throw new Error(message);
   }
@@ -378,6 +393,7 @@ export const fetchJobsFromApi = async (
   const jobs = deduplicatedPairs.map(p => p.job);
   const jds: Record<string, JobDescription> = {};
   for (const p of deduplicatedPairs) {
+    jds[p.job.id] = p.jd;
     jds[p.jd.id] = p.jd;
   }
 

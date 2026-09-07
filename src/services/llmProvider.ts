@@ -78,27 +78,50 @@ export async function generateLLMResponse<T = any>(
       structuredJson
     };
   } else {
-    // Gemini Fallback / Secondary Provider
-    const res = await fetch('/api/optimize-resume', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `${request.systemInstruction ? request.systemInstruction + '\n\n' : ''}${request.prompt}`
-              }
-            ]
-          }
-        ]
-      })
-    });
+    // Gemini Provider (Server-Side Proxy with Server-Side Secret)
+    let res: Response | null = null;
+    let lastErr: any = null;
 
-    if (!res.ok) {
-      const errorJson = await res.json().catch(() => ({}));
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const currentHost = attempt % 2 === 1 ? 'http://localhost:3000' : 'http://127.0.0.1:3000';
+        const targetUrl = typeof window !== 'undefined' ? '/api/optimize-resume' : `${currentHost}/api/optimize-resume`;
+        res = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: request.prompt
+                  }
+                ]
+              }
+            ],
+            systemInstruction: request.systemInstruction
+              ? {
+                  parts: [{ text: request.systemInstruction }]
+                }
+              : undefined,
+            generationConfig: {
+              temperature: 0.1,
+              ...(request.responseFormat === 'json' ? { responseMimeType: 'application/json' } : {})
+            }
+          })
+        });
+        if (res && res.ok) break;
+      } catch (err: any) {
+        lastErr = err;
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
+    }
+
+    if (!res || !res.ok) {
+      const errorJson = res ? await res.json().catch(() => ({})) : {};
       throw new Error(
-        errorJson?.error?.message || `Gemini LLM service error (HTTP ${res.status})`
+        errorJson?.error?.message || (res ? `Gemini LLM service error (HTTP ${res.status})` : (lastErr?.message || 'Gemini LLM network request failed'))
       );
     }
 
@@ -122,7 +145,7 @@ export async function generateLLMResponse<T = any>(
     return {
       text,
       provider: 'GEMINI',
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.6-flash',
       structuredJson
     };
   }

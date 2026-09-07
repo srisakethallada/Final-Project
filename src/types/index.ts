@@ -102,6 +102,21 @@ export interface Resume {
   currentVersionId: string;
 }
 
+export interface AG004ValidationResult {
+  factualValidation: 'PASS' | 'FAIL';
+  atsStructureValidation: 'PASS' | 'FAIL';
+  pdfTextExtractionValidation: 'PASS' | 'FAIL';
+  pdfTextOrderValidation: 'PASS' | 'FAIL';
+  jobRelevanceValidation: 'PASS' | 'FAIL';
+  pdfContentMatch: 'PASS' | 'FAIL';
+  unsupportedClaimsCount: number;
+  duplicateCount: number;
+  unsupportedClaims: string[];
+  warnings: string[];
+  overallStatus: 'VALIDATED' | 'FAILED';
+  verificationTimestamp: string;
+}
+
 export interface ResumeVersion {
   id: string; // DATA-004
   resumeId: string;
@@ -118,6 +133,9 @@ export interface ResumeVersion {
   contentPdfUrl?: string;
   detectedJobRole?: string;
   rawText?: string;
+  isVerified?: boolean;
+  validationResult?: AG004ValidationResult;
+  pdfExtractedText?: string;
 }
 
 export interface Job {

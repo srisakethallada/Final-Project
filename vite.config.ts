@@ -47,10 +47,8 @@ function agentApiServerPlugin() {
             const parsedPayload = JSON.parse(body);
 
             const CANDIDATE_MODELS = [
-              'gemini-2.0-flash',
-              'gemini-flash-latest',
-              'gemini-2.5-flash',
-              'gemini-3.6-flash'
+              'gemini-3.6-flash',
+              'gemini-2.5-flash'
             ];
 
             let lastErrorText = '';
@@ -244,10 +242,8 @@ function agentApiServerPlugin() {
             const parsedPayload = JSON.parse(body || '{}');
 
             const CANDIDATE_MODELS = [
-              'gemini-2.0-flash',
-              'gemini-flash-latest',
-              'gemini-2.5-flash',
-              'gemini-3.6-flash'
+              'gemini-3.6-flash',
+              'gemini-2.5-flash'
             ];
 
             let lastErrorText = '';
@@ -373,10 +369,8 @@ function agentApiServerPlugin() {
             const parsedPayload = JSON.parse(body || '{}');
 
             const CANDIDATE_MODELS = [
-              'gemini-2.0-flash',
-              'gemini-flash-latest',
-              'gemini-2.5-flash',
-              'gemini-3.6-flash'
+              'gemini-3.6-flash',
+              'gemini-2.5-flash'
             ];
 
             let lastErrorText = '';
