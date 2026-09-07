@@ -44,6 +44,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 import { parseResumeDocument, validateResumeFile } from './resumeParser';
 import { runAG001Analysis } from './resumeAnalysisAgent';
+import { runAG004ResumeOptimization } from './resumeOptimizationAgent';
 
 // ============================================================================
 // AG-001: RESUME ANALYSIS SERVICE (REAL & DATA-DRIVEN)
@@ -175,7 +176,7 @@ export const analyzeResume = async (
   }
 };
 
-import { fetchJobsFromApi } from './jobSearchAgent';
+import { fetchJobsFromApi, StructuredLocationFilter } from './jobSearchAgent';
 
 // ============================================================================
 // AG-002: JOB SEARCH SERVICE (REAL & DATA-DRIVEN)
@@ -183,17 +184,12 @@ import { fetchJobsFromApi } from './jobSearchAgent';
 export const searchJobs = async (
   userProfile: UserProfile,
   query?: string,
-  filters?: { workMode?: string; location?: string }
+  filters?: { workMode?: string; location?: string | StructuredLocationFilter }
 ): Promise<{ jobs: Job[]; jds: Record<string, JobDescription>; log: AgentExecutionLog }> => {
   const startTime = Date.now();
 
   try {
-    const { jobs, jds } = await fetchJobsFromApi(userProfile, query, filters?.location);
-
-    let filteredJobs = jobs;
-    if (filters?.workMode && filters.workMode !== 'ALL') {
-      filteredJobs = jobs.filter(j => j.workMode === filters.workMode);
-    }
+    const { jobs, jds, pipelineMetrics } = await fetchJobsFromApi(userProfile, query, filters?.location);
 
     const durationMs = Date.now() - startTime;
 
@@ -204,11 +200,11 @@ export const searchJobs = async (
       timestamp: new Date().toISOString(),
       status: 'SUCCESS',
       inputSummary: `Query: "${query || userProfile.jobRole || 'Software Engineer'}" (Target Role: "${userProfile.jobRole || 'None'}")`,
-      outputSummary: `Fetched, deduplicated, and deterministically ranked ${filteredJobs.length} live jobs for career role "${userProfile.jobRole || 'Software Engineer'}".`,
+      outputSummary: `JSearch raw results: ${pipelineMetrics?.rawCount ?? jobs.length} | Normalized: ${pipelineMetrics?.normalizedCount ?? jobs.length} | Location filter: ${pipelineMetrics?.locationFilteredCount ?? jobs.length} | Role/relevance filter: ${pipelineMetrics?.relevanceFilteredCount ?? jobs.length} | Work-mode filter: ${pipelineMetrics?.workModeFilteredCount ?? jobs.length} | Deduplicated: ${pipelineMetrics?.dedupedCount ?? jobs.length} | Final jobs displayed: ${jobs.length}`,
       durationMs
     };
 
-    return { jobs: filteredJobs, jds, log };
+    return { jobs, jds, log };
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
 
@@ -288,96 +284,42 @@ export const analyzeJobDescription = async (
 };
 
 // ============================================================================
-// AG-004: RESUME OPTIMIZATION SERVICE (HUMAN IN THE LOOP APPROVED)
+// AG-004: RESUME OPTIMIZATION SERVICE (REAL & DATA-DRIVEN)
 // ============================================================================
 export const optimizeResumeForJob = async (
   job: Job,
   analysis: JDAnalysis,
-  userProfile: UserProfile
+  userProfile: UserProfile,
+  existingJd?: JobDescription,
+  originalResumeVersionId?: string
 ): Promise<{ tailoredVersion: ResumeVersion; log: AgentExecutionLog }> => {
-  await delay(1500);
-
-  const tailoredVersion: ResumeVersion = {
-    id: `ver_tailored_${Date.now()}`,
-    resumeId: INITIAL_RESUMES[0].id,
-    versionName: `Tailored ATS Resume - ${job.company} (${job.title})`,
-    isOriginal: false,
-    tailoredForJobId: job.id,
-    tailoredForCompanyName: job.company,
-    createdAt: new Date().toISOString(),
-    profileSnapshot: userProfile,
-    strengths: [
-      `Re-ordered skills to emphasize high-priority JD matches: ${analysis.matchedSkills.slice(0, 4).join(', ')}`,
-      'Restructured bullet points with action verbs aligned to job responsibilities',
-      'Strict ATS formatting applied (100% parse rate guaranteed)'
-    ],
-    weaknesses: [
-      `Skill gap noted: ${analysis.skillGaps.join(', ') || 'None'} (No fake experience added)`
-    ],
-    structureNotes: [
-      'Strict Truthfulness Guardrail: Zero unverifiable claims or fabricated credentials added.',
-      'ATS Keyword Density: Optimized for single-pass resume screeners.'
-    ],
-    matchedKeywords: analysis.matchedSkills
+  const result = await runAG004ResumeOptimization(
+    job,
+    analysis,
+    userProfile,
+    existingJd,
+    originalResumeVersionId
+  );
+  return {
+    tailoredVersion: result.tailoredVersion,
+    log: result.log
   };
-
-  const log: AgentExecutionLog = {
-    id: `log_${Date.now()}`,
-    agentId: 'AG-004',
-    agentName: 'Resume Optimization Agent',
-    timestamp: new Date().toISOString(),
-    status: 'SUCCESS',
-    inputSummary: `User approved optimization for ${job.company}`,
-    outputSummary: `Generated tailored ATS resume (Version ID: ${tailoredVersion.id}). Zero fabrication.`,
-    durationMs: 1500
-  };
-
-  return { tailoredVersion, log };
 };
 
 // ============================================================================
-// AG-005: COVER LETTER GENERATION SERVICE
+import { runAG005CoverLetterGeneration } from './coverLetterAgent';
+
+// ============================================================================
+// AG-005: COVER LETTER GENERATION SERVICE (REAL & DATA-DRIVEN)
 // ============================================================================
 export const generateCoverLetter = async (
   job: Job,
   tailoredVersion: ResumeVersion,
-  userProfile: UserProfile
+  userProfile: UserProfile,
+  jobDescription?: JobDescription,
+  analysis?: JDAnalysis
 ): Promise<{ coverLetter: CoverLetter; log: AgentExecutionLog }> => {
-  await delay(1200);
-
-  const coverLetter: CoverLetter = {
-    id: `cl_${Date.now()}`,
-    jobId: job.id,
-    userId: userProfile.userId,
-    resumeVersionId: tailoredVersion.id,
-    companyName: job.company,
-    jobTitle: job.title,
-    createdAt: new Date().toISOString(),
-    content: `Dear Hiring Team at ${job.company},
-
-I am writing to express my strong enthusiasm for the ${job.title} position. As a software engineering graduate with hands-on experience in ${userProfile.skills.slice(0, 4).join(', ')}, I have followed ${job.company}'s work with great admiration.
-
-In my recent work, I developed production-grade React components and microservices that improved performance metrics significantly. My technical background in ${userProfile.technicalSkills.slice(0, 3).join(', ')} aligns directly with the key requirements outlined in your job posting.
-
-I am particularly excited about the prospect of contributing to ${job.company}'s engineering culture and driving user-facing innovation. Thank you for your time and consideration.
-
-Sincerely,
-${userProfile.userId === 'usr_101' ? 'Sri Saketh' : 'Job Seeker'}
-Software Engineer`
-  };
-
-  const log: AgentExecutionLog = {
-    id: `log_${Date.now()}`,
-    agentId: 'AG-005',
-    agentName: 'Cover Letter Generation Agent',
-    timestamp: new Date().toISOString(),
-    status: 'SUCCESS',
-    inputSummary: `Drafted cover letter for ${job.company}`,
-    outputSummary: `Produced personalized job-specific cover letter linked to Tailored Resume.`,
-    durationMs: 1200
-  };
-
-  return { coverLetter, log };
+  return await runAG005CoverLetterGeneration(job, tailoredVersion, userProfile, jobDescription, analysis);
 };
 
 // ============================================================================

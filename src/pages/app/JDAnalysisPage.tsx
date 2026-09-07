@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useWorkflow } from '../../context/WorkflowContext';
+import { persistenceService } from '../../services/persistenceService';
 import { Card, Button, Badge, MatchScoreBadge, AgentBadge, Input, EmptyState } from '../../components/ui';
 import {
   CheckCircle2,
@@ -19,29 +20,93 @@ import {
   Award,
   BookOpen,
   HelpCircle,
-  Check
+  Check,
+  RefreshCw
 } from 'lucide-react';
 
 export const JDAnalysisPage: React.FC = () => {
   const navigate = useNavigate();
+  const { jobId } = useParams<{ jobId?: string }>();
   const {
+    jobs,
+    allJds,
     selectedJob,
     selectedJD,
     jdAnalysis,
+    allJdAnalyses,
     profile,
+    selectJob,
     runJDAnalysis,
     approveJdAnalysis,
     analyzeManualJd,
     isLoading
   } = useWorkflow();
 
+  const [isInitializing, setIsInitializing] = useState(true);
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualTitle, setManualTitle] = useState('');
   const [manualCompany, setManualCompany] = useState('');
   const [manualJdText, setManualJdText] = useState('');
   const [manualError, setManualError] = useState<string | null>(null);
 
-  // Check 1: Profile availability
+  // First-load Responsiveness & Route Param Hydration Effect
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initJobAnalysis() {
+      if (!isMounted) return;
+
+      try {
+        if (jobId) {
+          // If selectedJob doesn't match the URL param jobId
+          if (!selectedJob || selectedJob.id !== jobId) {
+            let targetJob = jobs.find(j => j.id === jobId);
+            if (!targetJob && profile.userId) {
+              const storedJobs = await persistenceService.getJobs(profile.userId);
+              targetJob = storedJobs.find(j => j.id === jobId);
+            }
+
+            if (targetJob && isMounted) {
+              await selectJob(targetJob);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error initializing JD Analysis for route jobId:', err);
+      } finally {
+        if (isMounted) {
+          setIsInitializing(false);
+        }
+      }
+    }
+
+    initJobAnalysis();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [jobId, jobs, selectedJob?.id, profile.userId]);
+
+  // Check 1: Immediate Loading State during first load or analysis processing
+  if (isInitializing || (isLoading && (!selectedJob || !jdAnalysis))) {
+    return (
+      <div className="space-y-6 text-white font-sans">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-white">Job Description Analysis</h1>
+          <AgentBadge code="AG-003" name="JD Analysis" />
+        </div>
+        <Card className="p-12 text-center bg-[#1A1A1A] border-white/12 text-white space-y-4">
+          <RefreshCw className="w-10 h-10 text-white animate-spin mx-auto" />
+          <h3 className="text-lg font-bold text-white">Analyzing Job Description</h3>
+          <p className="text-xs text-neutral-400 max-w-md mx-auto">
+            AG-003 is loading the job description and evaluating candidate match vector against your master profile.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  // Check 2: Profile availability
   if (!profile.jobRole && profile.completeness === 0) {
     return (
       <div className="space-y-6 text-white font-sans">
@@ -68,7 +133,7 @@ export const JDAnalysisPage: React.FC = () => {
     );
   }
 
-  // Check 2: No job selected from AG-002 and no active analysis
+  // Check 3: No job selected from AG-002 and no active analysis
   if (!selectedJob || !jdAnalysis) {
     const handleManualSubmit = async (e: React.FormEvent) => {
       e.preventDefault();

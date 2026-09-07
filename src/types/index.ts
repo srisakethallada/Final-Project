@@ -81,6 +81,9 @@ export interface Certification {
 
 export interface UserPreferences {
   targetRoles: string[];
+  country?: string;
+  state?: string;
+  city?: string;
   preferredLocation: string;
   workMode: 'REMOTE' | 'HYBRID' | 'ONSITE' | 'ANY';
   experienceLevel: 'ENTRY' | 'MID' | 'SENIOR' | 'LEAD';

@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import {
   User,
   UserProfile,
+  UserPreferences,
   Resume,
   ResumeVersion,
   Job,
@@ -85,7 +86,9 @@ interface WorkflowContextType {
   jdAnalysis: JDAnalysis | null;
   allJdAnalyses: Record<string, JDAnalysis>;
   tailoredResume: ResumeVersion | null;
+  allTailoredResumes: Record<string, ResumeVersion>;
   coverLetter: CoverLetter | null;
+  allCoverLetters: Record<string, CoverLetter>;
   applications: Application[];
   activeApplication: Application | null;
   emailEvent: EmailInterviewEvent | null;
@@ -109,13 +112,24 @@ interface WorkflowContextType {
   confirmJobRole: (confirmedRole: string) => void;
   clearAnalysisError: () => void;
   clearJobSearchError: () => void;
-  runJobSearch: (query?: string, filters?: { workMode?: string; location?: string }) => Promise<void>;
+  runJobSearch: (
+    query?: string,
+    filters?: {
+      workMode?: string;
+      location?: string;
+      country?: string;
+      state?: string;
+      city?: string;
+    }
+  ) => Promise<void>;
   selectJob: (job: Job) => Promise<void>;
   runJDAnalysis: (job: Job, customJd?: JobDescription) => Promise<void>;
   approveJdAnalysis: () => void;
   analyzeManualJd: (title: string, company: string, fullJdText: string) => Promise<void>;
+  runResumeOptimization: () => Promise<void>;
   approveResumeOptimization: () => Promise<void>;
   generateCoverLetterForSelectedJob: () => Promise<void>;
+  updateCoverLetterContent: (newContent: string) => Promise<void>;
   recordJobApplication: (notes?: string) => Promise<void>;
   authorizeEmailAndScan: () => Promise<void>;
   startCompanyResearchAndPrep: (interview: Interview) => Promise<void>;
@@ -146,7 +160,9 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [allJdAnalyses, setAllJdAnalyses] = useState<Record<string, JDAnalysis>>({});
   
   const [tailoredResume, setTailoredResume] = useState<ResumeVersion | null>(null);
+  const [allTailoredResumes, setAllTailoredResumes] = useState<Record<string, ResumeVersion>>({});
   const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
+  const [allCoverLetters, setAllCoverLetters] = useState<Record<string, CoverLetter>>({});
   
   const [applications, setApplications] = useState<Application[]>(INITIAL_APPLICATIONS);
   const [activeApplication, setActiveApplication] = useState<Application | null>(INITIAL_APPLICATIONS[0]);
@@ -184,7 +200,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [authUser, userProfile]);
 
-  // Startup Hydration Effect: Restore DATA-002 User Profile, DATA-003 Resume, DATA-004 Resume Versions, and AG-003 JD Analyses on App load
+  // Startup Hydration Effect: Restore DATA-002 User Profile, DATA-003 Resume, DATA-004 Resume Versions, DATA-010 Cover Letters, and AG-003 JD Analyses on App load
   useEffect(() => {
     let isMounted = true;
 
@@ -196,6 +212,9 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const storedResumes = await persistenceService.getResumes(currentUserId);
         const storedVersions = await persistenceService.getResumeVersions(currentUserId);
         const storedAnalyses = await persistenceService.getAllJdAnalyses(currentUserId);
+        const storedJobs = await persistenceService.getJobs(currentUserId);
+        const storedJds = await persistenceService.getJds(currentUserId);
+        const storedCoverLetters = await persistenceService.getCoverLetters(currentUserId);
 
         if (!isMounted) return;
 
@@ -219,10 +238,36 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             new Date(curr.createdAt).getTime() > new Date(acc.createdAt).getTime() ? curr : acc
           , storedVersions[0]);
           setActiveResumeVersion(latest);
+
+          const tailoredDict: Record<string, ResumeVersion> = {};
+          storedVersions.forEach(v => {
+            if (v.tailoredForJobId) {
+              tailoredDict[v.tailoredForJobId] = v;
+            }
+          });
+          setAllTailoredResumes(tailoredDict);
+        }
+
+        if (storedCoverLetters && storedCoverLetters.length > 0) {
+          const coverLetterDict: Record<string, CoverLetter> = {};
+          storedCoverLetters.forEach(cl => {
+            if (cl.jobId) {
+              coverLetterDict[cl.jobId] = cl;
+            }
+          });
+          setAllCoverLetters(coverLetterDict);
         }
 
         if (storedAnalyses && Object.keys(storedAnalyses).length > 0) {
           setAllJdAnalyses(storedAnalyses);
+        }
+
+        if (storedJobs && storedJobs.length > 0) {
+          setJobs(storedJobs);
+        }
+
+        if (storedJds && Object.keys(storedJds).length > 0) {
+          setAllJds(storedJds);
         }
       } catch (err) {
         console.error('Failed to hydrate AG-001/AG-003 persisted data from storage:', err);
@@ -309,13 +354,65 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const clearJobSearchError = () => setJobSearchError(null);
 
-  const runJobSearch = async (query?: string, filters?: { workMode?: string; location?: string }) => {
+  const runJobSearch = async (
+    query?: string,
+    filters?: {
+      workMode?: string;
+      location?: string;
+      country?: string;
+      state?: string;
+      city?: string;
+    }
+  ) => {
     setIsLoading(true);
     setJobSearchError(null);
     try {
-      const res = await services.searchJobs(profile, query, filters);
+      // 1. Update & Persist Location Preferences in User Profile
+      const country = filters?.country !== undefined ? filters.country : profile.preferences?.country;
+      const state = filters?.state !== undefined ? filters.state : profile.preferences?.state;
+      const city = filters?.city !== undefined ? filters.city : profile.preferences?.city;
+      const workMode = (filters?.workMode as any) || profile.preferences?.workMode || 'HYBRID';
+
+      const parts: string[] = [];
+      if (city) parts.push(city);
+      if (state) parts.push(state);
+      if (country) parts.push(country);
+      const preferredLocation = parts.length > 0 ? parts.join(', ') : profile.preferences?.preferredLocation || '';
+
+      const updatedPrefs: UserPreferences = {
+        targetRoles: profile.preferences?.targetRoles || [],
+        experienceLevel: profile.preferences?.experienceLevel || 'MID',
+        targetCompanies: profile.preferences?.targetCompanies || [],
+        ...(profile.preferences || {}),
+        country,
+        state,
+        city,
+        preferredLocation,
+        workMode: workMode as any
+      };
+
+      const updatedProfile: UserProfile = {
+        ...profile,
+        preferences: updatedPrefs
+      };
+      setProfile(updatedProfile);
+      await persistenceService.saveUserProfile(updatedProfile);
+
+      // 2. Build location filter structure for external job API
+      const locationObj = { country, state, city, workMode };
+
+      const res = await services.searchJobs(updatedProfile, query, {
+        workMode: filters?.workMode,
+        location: locationObj
+      });
+
       setJobs(res.jobs);
-      setAllJds(prev => ({ ...prev, ...res.jds }));
+      setAllJds(prev => {
+        const next = { ...prev, ...res.jds };
+        persistenceService.saveJds(next, updatedProfile.userId);
+        return next;
+      });
+      await persistenceService.saveJobs(res.jobs, updatedProfile.userId);
       addLog(res.log);
     } catch (err: any) {
       console.error('AG-002 Job Search error:', err);
@@ -335,10 +432,43 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (targetJd) {
       setSelectedJD(targetJd);
     }
-    if (allJdAnalyses[job.id]) {
-      setJdAnalysis(allJdAnalyses[job.id]);
+
+    let existingAnalysis = allJdAnalyses[job.id];
+    if (!existingAnalysis) {
+      const currentUserId = profile.userId || 'usr_current';
+      const storedAnalyses = await persistenceService.getAllJdAnalyses(currentUserId);
+      if (storedAnalyses && storedAnalyses[job.id]) {
+        existingAnalysis = storedAnalyses[job.id];
+        setAllJdAnalyses(storedAnalyses);
+      }
+    }
+
+    if (existingAnalysis) {
+      setJdAnalysis(existingAnalysis);
     } else {
       await runJDAnalysis(job);
+    }
+
+    // Restore job-isolated tailored resume version if available
+    if (allTailoredResumes[job.id]) {
+      setTailoredResume(allTailoredResumes[job.id]);
+    } else {
+      const matchVersion = resumeVersions.find(v => v.tailoredForJobId === job.id);
+      setTailoredResume(matchVersion || null);
+    }
+
+    // Restore job-isolated cover letter if available
+    if (allCoverLetters[job.id]) {
+      setCoverLetter(allCoverLetters[job.id]);
+    } else {
+      const currentUserId = profile.userId || 'usr_current';
+      const storedCL = await persistenceService.getCoverLetterForJob(currentUserId, job.id);
+      if (storedCL) {
+        setCoverLetter(storedCL);
+        setAllCoverLetters(prev => ({ ...prev, [job.id]: storedCL }));
+      } else {
+        setCoverLetter(null);
+      }
     }
   };
 
@@ -409,30 +539,93 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await runJDAnalysis(manualJob, manualJd);
   };
 
-  const approveResumeOptimization = async () => {
-    if (!selectedJob || !jdAnalysis) return;
+  const runResumeOptimization = async () => {
+    if (!selectedJob || !jdAnalysis) {
+      throw new Error('Select a job and run JD Analysis before optimizing your resume.');
+    }
+    if (jdAnalysis.isApprovedForOptimization !== true) {
+      throw new Error('Approve the JD Analysis before optimizing your resume.');
+    }
+
     setIsLoading(true);
     try {
-      const res = await services.optimizeResumeForJob(selectedJob, jdAnalysis, profile);
+      const targetJd = selectedJD || allJds[selectedJob.descriptionId];
+      const res = await services.optimizeResumeForJob(
+        selectedJob,
+        jdAnalysis,
+        profile,
+        targetJd,
+        activeResumeVersion?.id
+      );
+
       setTailoredResume(res.tailoredVersion);
-      setResumeVersions(prev => [res.tailoredVersion, ...prev]);
+      setAllTailoredResumes(prev => ({ ...prev, [selectedJob.id]: res.tailoredVersion }));
+      setResumeVersions(prev => [res.tailoredVersion, ...prev.filter(v => v.id !== res.tailoredVersion.id)]);
       addLog(res.log);
+
+      // PERSIST AG-004 TAILORED VERSION TO INDEXEDDB (DATA-004)
+      await persistenceService.saveResumeVersion(res.tailoredVersion, profile.userId);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const approveResumeOptimization = async () => {
+    if (!tailoredResume || !selectedJob) return;
+    const approvedVersion: ResumeVersion = {
+      ...tailoredResume,
+      isApproved: true,
+      approvedAt: new Date().toISOString()
+    } as any;
+
+    setTailoredResume(approvedVersion);
+    setAllTailoredResumes(prev => ({ ...prev, [selectedJob.id]: approvedVersion }));
+    setResumeVersions(prev => [approvedVersion, ...prev.filter(v => v.id !== approvedVersion.id)]);
+
+    await persistenceService.saveResumeVersion(approvedVersion, profile.userId);
+  };
+
   const generateCoverLetterForSelectedJob = async () => {
-    if (!selectedJob) return;
+    if (!selectedJob) {
+      throw new Error('Select a job before generating a cover letter.');
+    }
+    const versionToUse = tailoredResume || activeResumeVersion;
+    if (!versionToUse) {
+      throw new Error('An optimized resume version (AG-004) is required before generating a cover letter.');
+    }
+
     setIsLoading(true);
     try {
-      const versionToUse = tailoredResume || activeResumeVersion;
-      const res = await services.generateCoverLetter(selectedJob, versionToUse, profile);
+      const targetJd = selectedJD || allJds[selectedJob.descriptionId];
+      const targetAnalysis = allJdAnalyses[selectedJob.id] || jdAnalysis || undefined;
+      const res = await services.generateCoverLetter(
+        selectedJob,
+        versionToUse,
+        profile,
+        targetJd,
+        targetAnalysis
+      );
+
       setCoverLetter(res.coverLetter);
+      setAllCoverLetters(prev => ({ ...prev, [selectedJob.id]: res.coverLetter }));
       addLog(res.log);
+
+      // PERSIST DATA-010 COVER LETTER TO INDEXEDDB / STORAGE
+      await persistenceService.saveCoverLetter(res.coverLetter);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const updateCoverLetterContent = async (newContent: string) => {
+    if (!coverLetter || !selectedJob) return;
+    const updated: CoverLetter = {
+      ...coverLetter,
+      content: newContent
+    };
+    setCoverLetter(updated);
+    setAllCoverLetters(prev => ({ ...prev, [selectedJob.id]: updated }));
+    await persistenceService.saveCoverLetter(updated);
   };
 
   const recordJobApplication = async (notes?: string) => {
@@ -530,7 +723,9 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       jdAnalysis,
       allJdAnalyses,
       tailoredResume,
+      allTailoredResumes,
       coverLetter,
+      allCoverLetters,
       applications,
       activeApplication,
       emailEvent,
@@ -557,8 +752,10 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       runJDAnalysis,
       approveJdAnalysis,
       analyzeManualJd,
+      runResumeOptimization,
       approveResumeOptimization,
       generateCoverLetterForSelectedJob,
+      updateCoverLetterContent,
       recordJobApplication,
       authorizeEmailAndScan,
       startCompanyResearchAndPrep,

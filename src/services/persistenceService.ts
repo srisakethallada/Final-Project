@@ -1,4 +1,4 @@
-import { UserProfile, Resume, ResumeVersion, JDAnalysis } from '../types';
+import { UserProfile, Resume, ResumeVersion, JDAnalysis, Job, JobDescription, CoverLetter } from '../types';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 const DB_NAME = 'AICareerOS_DB';
@@ -448,5 +448,94 @@ export const persistenceService = {
     }
 
     return dict;
+  },
+
+  // --------------------------------------------------------------------------
+  // AG-002 JOBS & JDS PERSISTENCE
+  // --------------------------------------------------------------------------
+  async saveJobs(jobs: Job[], userId: string): Promise<void> {
+    if (!userId) return;
+    try {
+      localStorage.setItem(`user_jobs_${userId}`, JSON.stringify(jobs));
+    } catch (e) {
+      console.warn('localStorage jobs write warning:', e);
+    }
+  },
+
+  async getJobs(userId: string): Promise<Job[]> {
+    if (!userId) return [];
+    try {
+      const raw = localStorage.getItem(`user_jobs_${userId}`);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {
+      console.warn('localStorage jobs read warning:', e);
+    }
+    return [];
+  },
+
+  async saveJds(jds: Record<string, JobDescription>, userId: string): Promise<void> {
+    if (!userId) return;
+    try {
+      localStorage.setItem(`user_jds_${userId}`, JSON.stringify(jds));
+    } catch (e) {
+      console.warn('localStorage jds write warning:', e);
+    }
+  },
+
+  async getJds(userId: string): Promise<Record<string, JobDescription>> {
+    if (!userId) return {};
+    try {
+      const raw = localStorage.getItem(`user_jds_${userId}`);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {
+      console.warn('localStorage jds read warning:', e);
+    }
+    return {};
+  },
+
+  // --------------------------------------------------------------------------
+  // AG-005 COVER LETTER PERSISTENCE (DATA-010)
+  // --------------------------------------------------------------------------
+  async saveCoverLetter(coverLetter: CoverLetter): Promise<void> {
+    if (!coverLetter || !coverLetter.userId || !coverLetter.jobId) return;
+
+    try {
+      const existing = await this.getCoverLetters(coverLetter.userId);
+      const dict: Record<string, CoverLetter> = {};
+      existing.forEach(cl => { dict[cl.jobId] = cl; });
+      dict[coverLetter.jobId] = coverLetter;
+
+      localStorage.setItem(`user_cover_letters_${coverLetter.userId}`, JSON.stringify(dict));
+    } catch (e) {
+      console.warn('localStorage cover letter write warning:', e);
+    }
+  },
+
+  async getCoverLetters(userId: string): Promise<CoverLetter[]> {
+    if (!userId) return [];
+    try {
+      const raw = localStorage.getItem(`user_cover_letters_${userId}`);
+      if (raw) {
+        const dict: Record<string, CoverLetter> = JSON.parse(raw);
+        return Object.values(dict);
+      }
+    } catch (e) {
+      console.warn('localStorage cover letters read warning:', e);
+    }
+    return [];
+  },
+
+  async getCoverLetterForJob(userId: string, jobId: string): Promise<CoverLetter | null> {
+    if (!userId || !jobId) return null;
+    try {
+      const raw = localStorage.getItem(`user_cover_letters_${userId}`);
+      if (raw) {
+        const dict: Record<string, CoverLetter> = JSON.parse(raw);
+        return dict[jobId] || null;
+      }
+    } catch (e) {
+      console.warn('localStorage cover letter fetch warning:', e);
+    }
+    return null;
   }
 };

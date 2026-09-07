@@ -332,6 +332,331 @@ function agentApiServerPlugin() {
           }
         });
       });
+
+      // Endpoint: AG-004 Resume Optimization LLM Proxy
+      server.middlewares.use('/api/optimize-resume', async (req: any, res: any, next: any) => {
+        if (req.method !== 'POST') {
+          next();
+          return;
+        }
+
+        let body = '';
+        req.on('data', (chunk: any) => {
+          body += chunk;
+        });
+
+        req.on('end', async () => {
+          try {
+            const env = loadEnv(server.config.mode || 'development', process.cwd(), '');
+            const apiKey = (
+              env.GEMINI_API_KEY ||
+              env.LLM_API_KEY ||
+              process.env.GEMINI_API_KEY ||
+              process.env.LLM_API_KEY ||
+              ''
+            ).trim();
+
+            if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(
+                JSON.stringify({
+                  error: {
+                    message:
+                      'Server-side Gemini API key required.\n\nPlease paste your Gemini API key into:\n.env.local\n\nVariable:\nGEMINI_API_KEY'
+                  }
+                })
+              );
+              return;
+            }
+
+            const parsedPayload = JSON.parse(body || '{}');
+
+            const CANDIDATE_MODELS = [
+              'gemini-2.0-flash',
+              'gemini-flash-latest',
+              'gemini-2.5-flash',
+              'gemini-3.6-flash'
+            ];
+
+            let lastErrorText = '';
+            let lastStatus = 500;
+            let successResult: any = null;
+
+            for (const model of CANDIDATE_MODELS) {
+              const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+                apiKey
+              )}`;
+
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                  const geminiResponse = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(parsedPayload)
+                  });
+
+                  const responseText = await geminiResponse.text();
+
+                  if (geminiResponse.ok) {
+                    successResult = { status: 200, data: responseText };
+                    break;
+                  }
+
+                  lastStatus = geminiResponse.status;
+                  lastErrorText = responseText;
+
+                  const isRetryable =
+                    geminiResponse.status === 429 ||
+                    geminiResponse.status === 503 ||
+                    geminiResponse.status >= 500 ||
+                    responseText.includes('high demand') ||
+                    responseText.includes('RESOURCE_EXHAUSTED');
+
+                  if (isRetryable && attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+                    continue;
+                  }
+
+                  break;
+                } catch (err: any) {
+                  lastErrorText = err.message || 'Network request failed';
+                  if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+                  }
+                }
+              }
+
+              if (successResult) {
+                break;
+              }
+            }
+
+            if (successResult) {
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(successResult.data);
+            } else {
+              res.statusCode = lastStatus || 503;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(
+                lastErrorText ||
+                  JSON.stringify({
+                    error: { message: 'Gemini LLM service unavailable for AG-004 Resume Optimization.' }
+                  })
+              );
+            }
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                error: {
+                  message: err.message || 'Server error executing AG-004 LLM optimization.'
+                }
+              })
+            );
+          }
+        });
+      });
+
+      // Endpoint: Centralized Experiential Labs GPT-6 Astra LLM Server Middleware
+      server.middlewares.use('/api/llm/openai', async (req: any, res: any, next: any) => {
+        if (req.method !== 'POST') {
+          next();
+          return;
+        }
+
+        let body = '';
+        req.on('data', (chunk: any) => {
+          body += chunk;
+        });
+
+        req.on('end', async () => {
+          try {
+            const env = loadEnv(server.config.mode || 'development', process.cwd(), '');
+            const apiKey = (
+              env.EXPLABS_API_KEY ||
+              env.OPENAI_API_KEY ||
+              process.env.EXPLABS_API_KEY ||
+              process.env.OPENAI_API_KEY ||
+              ''
+            ).trim();
+
+            if (
+              !apiKey ||
+              apiKey === 'your_experiential_labs_api_key_here' ||
+              apiKey === 'your_openai_api_key_here' ||
+              apiKey === 'PASTE_YOUR_OPENAI_API_KEY_HERE'
+            ) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(
+                JSON.stringify({
+                  error: {
+                    message:
+                      'Server-side Experiential Labs API key required.\n\nPlease paste your Experiential Labs API key into:\n.env.local\n\nVariable:\nEXPLABS_API_KEY'
+                  }
+                })
+              );
+              return;
+            }
+
+            const parsedPayload = JSON.parse(body || '{}');
+            const targetModel = parsedPayload.model || 'gpt-6-astra';
+
+            const requestBody: Record<string, any> = {
+              model: targetModel,
+              messages: []
+            };
+
+            if (parsedPayload.systemInstruction) {
+              requestBody.messages.push({
+                role: 'system',
+                content: parsedPayload.systemInstruction
+              });
+            }
+
+            if (parsedPayload.prompt) {
+              requestBody.messages.push({
+                role: 'user',
+                content: parsedPayload.prompt
+              });
+            }
+
+            if (parsedPayload.responseFormat === 'json') {
+              requestBody.response_format = { type: 'json_object' };
+            }
+
+            const explabsResponse = await fetch('https://api.experientiallabs.ai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify(requestBody)
+            });
+
+            const responseText = await explabsResponse.text();
+            res.statusCode = explabsResponse.status;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(responseText);
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                error: {
+                  message: err.message || 'Server error executing Experiential Labs LLM request.'
+                }
+              })
+            );
+          }
+        });
+      });
+
+      // Endpoint: Connection & Model Verification Test for Experiential Labs GPT-6 Astra
+      server.middlewares.use('/api/llm/openai-test', async (req: any, res: any, next: any) => {
+        if (req.method !== 'POST') {
+          next();
+          return;
+        }
+
+        try {
+          const env = loadEnv(server.config.mode || 'development', process.cwd(), '');
+          const apiKey = (
+            env.EXPLABS_API_KEY ||
+            env.OPENAI_API_KEY ||
+            process.env.EXPLABS_API_KEY ||
+            process.env.OPENAI_API_KEY ||
+            ''
+          ).trim();
+
+          if (
+            !apiKey ||
+            apiKey === 'your_experiential_labs_api_key_here' ||
+            apiKey === 'your_openai_api_key_here' ||
+            apiKey === 'PASTE_YOUR_OPENAI_API_KEY_HERE'
+          ) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                error: {
+                  message:
+                    'Server-side Experiential Labs API key required.\n\nPlease paste your Experiential Labs API key into:\n.env.local\n\nVariable:\nEXPLABS_API_KEY'
+                }
+              })
+            );
+            return;
+          }
+
+          // Step 1: GET https://api.experientiallabs.ai/v1/models (Requirement 19 & 20)
+          const modelsResponse = await fetch('https://api.experientiallabs.ai/v1/models', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`
+            }
+          });
+
+          let modelsAuthPass = false;
+          let gpt6AstraAvailable = false;
+          let modelsData: any = null;
+
+          if (modelsResponse.ok) {
+            modelsAuthPass = true;
+            modelsData = await modelsResponse.json();
+            const modelsList: any[] = modelsData?.data || modelsData || [];
+            gpt6AstraAvailable = modelsList.some(
+              (m: any) => m.id === 'gpt-6-astra' || m.name === 'gpt-6-astra' || String(m).includes('gpt-6-astra')
+            );
+          }
+
+          // Step 2: POST https://api.experientiallabs.ai/v1/chat/completions (Requirement 21)
+          const testPayload = {
+            model: 'gpt-6-astra',
+            messages: [{ role: 'user', content: 'Respond with JSON: {"status": "ok"}' }],
+            response_format: { type: 'json_object' }
+          };
+
+          const completionResponse = await fetch('https://api.experientiallabs.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(testPayload)
+          });
+
+          const responseText = await completionResponse.text();
+
+          res.statusCode = completionResponse.status;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(
+            JSON.stringify({
+              success: completionResponse.ok,
+              modelsAuthPass,
+              gpt6AstraAvailable,
+              status: completionResponse.status,
+              gatewayEndpoint: 'https://api.experientiallabs.ai/v1/chat/completions',
+              modelRequested: 'gpt-6-astra',
+              rawResponse: responseText
+            })
+          );
+        } catch (err: any) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(
+            JSON.stringify({
+              error: {
+                message: err.message || 'Server error executing Experiential Labs connection test.'
+              }
+            })
+          );
+        }
+      });
     }
   };
 }

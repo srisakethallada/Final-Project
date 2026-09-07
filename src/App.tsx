@@ -81,7 +81,11 @@ export const App: React.FC = () => {
               <Route path="resume" element={<ResumePage />} />
               <Route path="resume/analysis" element={<ResumePage />} />
               <Route path="resume/optimize" element={<ResumeOptimizationPage />} />
+              <Route path="resume-optimization" element={<Navigate to="/app/resume/optimize" replace />} />
               <Route path="jobs" element={<JobSearchPage />} />
+              <Route path="job-search" element={<Navigate to="/app/jobs" replace />} />
+              <Route path="jobs/analysis" element={<JDAnalysisPage />} />
+              <Route path="jd-analysis" element={<Navigate to="/app/jobs/analysis" replace />} />
               <Route path="jobs/:jobId/analysis" element={<JDAnalysisPage />} />
               <Route path="cover-letter" element={<CoverLetterPage />} />
               <Route path="applications" element={<ApplicationsPage />} />

@@ -135,8 +135,9 @@ Extract the complete structured profile JSON according to all instructions. Make
 
   // Call Server-Side API endpoint
   let response: Response;
+  const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
   try {
-    response = await fetch('/api/analyze-resume', {
+    response = await fetch(`${baseUrl}/api/analyze-resume`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

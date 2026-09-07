@@ -4,22 +4,41 @@
 // ============================================================================
 
 import { UserProfile, Job, JobDescription } from '../types';
+import { isLocationMatching } from '../data/locationData';
 
 export interface RawJSearchResponse {
   status: string;
   data: any[];
 }
 
+export interface StructuredLocationFilter {
+  country?: string;
+  state?: string;
+  city?: string;
+  workMode?: string;
+}
+
+export interface PipelineMetrics {
+  rawCount: number;
+  normalizedCount: number;
+  locationFilteredCount: number;
+  relevanceFilteredCount: number;
+  workModeFilteredCount: number;
+  dedupedCount: number;
+  finalCount: number;
+}
+
 /**
- * Builds search query using AG-001 career profile and user filters
+ * Builds search query dynamically using AG-001 career profile and structured location filters
  */
 export const buildSearchQuery = (
   profile: UserProfile,
   filterQuery?: string,
-  filterLocation?: string
+  locationFilter?: string | StructuredLocationFilter
 ): string => {
   const queryParts: string[] = [];
 
+  // 1. Role or search query term
   if (filterQuery && filterQuery.trim()) {
     queryParts.push(filterQuery.trim());
   } else if (profile.jobRole && profile.jobRole.trim()) {
@@ -30,16 +49,38 @@ export const buildSearchQuery = (
     queryParts.push('Software Engineer');
   }
 
-  const location = filterLocation?.trim() || profile.location || profile.preferences?.preferredLocation;
-  if (location && !location.toLowerCase().includes('remote') && location.length > 2) {
-    queryParts.push(`in ${location}`);
+  // 2. Structured Geographic Location
+  let locationStr = '';
+  if (typeof locationFilter === 'object' && locationFilter !== null) {
+    const parts: string[] = [];
+    if (locationFilter.city && locationFilter.city.trim()) parts.push(locationFilter.city.trim());
+    if (locationFilter.state && locationFilter.state.trim()) parts.push(locationFilter.state.trim());
+    if (locationFilter.country && locationFilter.country.trim()) parts.push(locationFilter.country.trim());
+    locationStr = parts.join(', ');
+  } else if (typeof locationFilter === 'string' && locationFilter.trim()) {
+    locationStr = locationFilter.trim();
+  } else {
+    const prefs = profile.preferences;
+    if (prefs?.city || prefs?.state || prefs?.country) {
+      const parts: string[] = [];
+      if (prefs.city && prefs.city.trim()) parts.push(prefs.city.trim());
+      if (prefs.state && prefs.state.trim()) parts.push(prefs.state.trim());
+      if (prefs.country && prefs.country.trim()) parts.push(prefs.country.trim());
+      locationStr = parts.join(', ');
+    } else {
+      locationStr = profile.location || prefs?.preferredLocation || '';
+    }
+  }
+
+  if (locationStr && !locationStr.toLowerCase().includes('remote') && locationStr.length >= 2) {
+    queryParts.push(`in ${locationStr}`);
   }
 
   return queryParts.join(' ');
 };
 
 /**
- * Calculates deterministic relevance score (0-100%) matching job against AG-001 profile
+ * Calculates flexible relevance score (0-100%) matching job against AG-001 profile
  */
 export const calculateRelevanceScore = (
   title: string,
@@ -48,51 +89,48 @@ export const calculateRelevanceScore = (
   location: string,
   profile: UserProfile
 ): number => {
-  let score = 40; // Baseline candidate score
+  let score = 50; // Baseline relevance for real external job result
 
   const targetRole = (profile.jobRole || profile.headline || '').toLowerCase();
   const lowerTitle = title.toLowerCase();
   const lowerJd = descriptionText.toLowerCase();
 
-  // 1. Role Title Alignment (up to +35 points)
+  // 1. Role Title Alignment (up to +30 points)
   if (targetRole && lowerTitle.includes(targetRole)) {
-    score += 35;
+    score += 30;
   } else {
-    // Check partial title match
-    const roleWords = targetRole.split(/\s+/).filter(w => w.length > 3);
-    const matchedWords = roleWords.filter(w => lowerTitle.includes(w));
+    // Check partial title match & token overlap (e.g. Cloud, DevOps, SRE, Systems, Engineer, Developer)
+    const roleWords = targetRole
+      .replace(/[^a-z0-9\s]/gi, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && w !== 'engineer' && w !== 'developer');
+
     if (roleWords.length > 0) {
-      score += Math.round((matchedWords.length / roleWords.length) * 25);
+      const matchedWords = roleWords.filter(w => lowerTitle.includes(w) || lowerJd.includes(w));
+      score += Math.round((matchedWords.length / roleWords.length) * 20);
     }
   }
 
-  // 2. Technical Skill Matching (up to +40 points)
+  // 2. Technical Skill Matching (up to +30 points)
   const skillsToMatch = profile.technicalSkills.length > 0 ? profile.technicalSkills : profile.skills;
   if (skillsToMatch.length > 0) {
     let matchedSkillCount = 0;
     for (const skill of skillsToMatch) {
-      if (lowerJd.includes(skill.toLowerCase())) {
+      if (lowerTitle.includes(skill.toLowerCase()) || lowerJd.includes(skill.toLowerCase())) {
         matchedSkillCount++;
       }
     }
     const skillRatio = matchedSkillCount / skillsToMatch.length;
-    score += Math.round(skillRatio * 40);
+    score += Math.round(skillRatio * 30);
   }
 
-  // 3. Work Mode & Location Match (+15 points)
-  const prefWorkMode = profile.preferences?.workMode || 'HYBRID';
-  if (workMode === prefWorkMode || workMode === 'REMOTE' || prefWorkMode === 'ANY') {
-    score += 15;
-  }
-
-  // 4. Experience Level Alignment (+10 points)
-  if (lowerJd.includes('senior') && (profile.experience.length >= 2 || lowerTitle.includes('senior'))) {
-    score += 10;
-  } else if (!lowerJd.includes('senior') && profile.experience.length < 2) {
+  // 3. Work Mode & Location Match (+10 points)
+  const prefWorkMode = profile.preferences?.workMode || 'ANY';
+  if (prefWorkMode === 'ANY' || workMode === prefWorkMode || workMode === 'REMOTE') {
     score += 10;
   }
 
-  return Math.min(99, Math.max(50, score));
+  return Math.min(99, Math.max(45, score));
 };
 
 /**
@@ -102,7 +140,7 @@ export const normalizeJSearchItem = (
   item: any,
   idx: number,
   profile: UserProfile
-): { job: Job; jd: JobDescription } => {
+): { job: Job; jd: JobDescription; rawItem: any } => {
   const jobId = `job_${item.job_id || Date.now()}_${idx}`;
   const descriptionId = `jd_${jobId}`;
 
@@ -169,7 +207,6 @@ export const normalizeJSearchItem = (
     relevanceScore
   };
 
-  // Extract required and preferred skills from job description text
   const requiredSkills: string[] = [];
   const preferredSkills: string[] = [];
 
@@ -185,21 +222,21 @@ export const normalizeJSearchItem = (
     id: descriptionId,
     jobId,
     fullText,
-    requiredSkills: requiredSkills.length > 0 ? requiredSkills : profile.skills.slice(0, 5),
+    requiredSkills: requiredSkills.length > 0 ? requiredSkills : (profile.skills || []).slice(0, 5),
     preferredSkills: preferredSkills,
     responsibilities: [
-      `Design and implement scalable engineering solutions for ${title} role.`,
-      `Collaborate with cross-functional product and engineering teams at ${company}.`,
-      'Maintain automated testing, code quality, and performance optimization standards.'
+      `Design and implement engineering solutions for ${title} role.`,
+      `Collaborate with engineering teams at ${company}.`,
+      'Maintain code quality, performance, and automation standards.'
     ],
     qualifications: [
-      'Bachelor degree in Computer Science, Software Engineering, or related technical field.',
-      'Hands-on experience with modern software development frameworks and cloud platforms.'
+      'Bachelor degree in technical discipline or equivalent industry experience.',
+      'Hands-on experience with modern software development and cloud tools.'
     ],
     experienceYearsRequired: lowerTextIncludesSenior(title, fullText) ? 4 : 2
   };
 
-  return { job, jd };
+  return { job, jd, rawItem: item };
 };
 
 const lowerTextIncludesSenior = (title: string, fullText: string): boolean => {
@@ -208,9 +245,11 @@ const lowerTextIncludesSenior = (title: string, fullText: string): boolean => {
 };
 
 /**
- * Deduplicates jobs based on job ID or company + title + location hash
+ * Deduplicates jobs based on company + title + location hash
  */
-export const deduplicateJobs = (jobPairs: { job: Job; jd: JobDescription }[]): { job: Job; jd: JobDescription }[] => {
+export const deduplicateJobs = (
+  jobPairs: { job: Job; jd: JobDescription }[]
+): { job: Job; jd: JobDescription }[] => {
   const seenKeys = new Set<string>();
   const uniquePairs: { job: Job; jd: JobDescription }[] = [];
 
@@ -226,16 +265,17 @@ export const deduplicateJobs = (jobPairs: { job: Job; jd: JobDescription }[]): {
 };
 
 /**
- * Executes AG-002 Job Search pipeline against server API backend
+ * Executes AG-002 Job Search pipeline against server API backend with full diagnostic metrics
  */
 export const fetchJobsFromApi = async (
   profile: UserProfile,
   filterQuery?: string,
-  filterLocation?: string
-): Promise<{ jobs: Job[]; jds: Record<string, JobDescription> }> => {
+  filterLocation?: string | StructuredLocationFilter
+): Promise<{ jobs: Job[]; jds: Record<string, JobDescription>; pipelineMetrics: PipelineMetrics }> => {
   const searchQuery = buildSearchQuery(profile, filterQuery, filterLocation);
+  const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
 
-  const response = await fetch('/api/search-jobs', {
+  const response = await fetch(`${baseUrl}/api/search-jobs`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -265,17 +305,74 @@ export const fetchJobsFromApi = async (
     ? rawJson
     : [];
 
-  if (rawItems.length === 0) {
-    return { jobs: [], jds: {} };
+  const rawCount = rawItems.length;
+
+  if (rawCount === 0) {
+    const emptyMetrics: PipelineMetrics = {
+      rawCount: 0,
+      normalizedCount: 0,
+      locationFilteredCount: 0,
+      relevanceFilteredCount: 0,
+      workModeFilteredCount: 0,
+      dedupedCount: 0,
+      finalCount: 0
+    };
+    return { jobs: [], jds: {}, pipelineMetrics: emptyMetrics };
   }
 
-  // Normalize raw items into domain models
+  // 1. Normalize raw items into domain models
   const normalizedPairs = rawItems.map((item: any, idx: number) => normalizeJSearchItem(item, idx, profile));
+  const normalizedCount = normalizedPairs.length;
 
-  // Deduplicate pairs
-  const deduplicatedPairs = deduplicateJobs(normalizedPairs);
+  // Extract location targets
+  let targetCity = '';
+  let targetState = '';
+  let targetCountry = '';
+  let targetWorkMode = 'ALL';
 
-  // Sort by deterministic relevance score descending
+  if (typeof filterLocation === 'object' && filterLocation !== null) {
+    targetCity = filterLocation.city || '';
+    targetState = filterLocation.state || '';
+    targetCountry = filterLocation.country || '';
+    targetWorkMode = filterLocation.workMode || 'ALL';
+  } else {
+    targetCity = profile.preferences?.city || '';
+    targetState = profile.preferences?.state || '';
+    targetCountry = profile.preferences?.country || '';
+    targetWorkMode = profile.preferences?.workMode || 'ALL';
+  }
+
+  // 2. Filter by normalized location evidence
+  const locationFilteredPairs = normalizedPairs.filter(p => {
+    const item = p.rawItem;
+    return isLocationMatching(
+      item.job_city || '',
+      item.job_state || '',
+      item.job_country || '',
+      p.job.location || '',
+      targetCity,
+      targetState,
+      targetCountry
+    );
+  });
+  const locationFilteredCount = locationFilteredPairs.length;
+
+  // 3. Filter by role/relevance score (relevanceScore >= 45)
+  const relevanceFilteredPairs = locationFilteredPairs.filter(p => p.job.relevanceScore >= 45);
+  const relevanceFilteredCount = relevanceFilteredPairs.length;
+
+  // 4. Filter by work mode (if workMode is not ALL/ANY)
+  const workModeFilteredPairs = relevanceFilteredPairs.filter(p => {
+    if (!targetWorkMode || targetWorkMode === 'ALL' || targetWorkMode === 'ANY') return true;
+    return p.job.workMode === targetWorkMode || p.job.workMode === 'REMOTE';
+  });
+  const workModeFilteredCount = workModeFilteredPairs.length;
+
+  // 5. Deduplicate pairs
+  const deduplicatedPairs = deduplicateJobs(workModeFilteredPairs);
+  const dedupedCount = deduplicatedPairs.length;
+
+  // 6. Sort by deterministic relevance score descending
   deduplicatedPairs.sort((a, b) => b.job.relevanceScore - a.job.relevanceScore);
 
   const jobs = deduplicatedPairs.map(p => p.job);
@@ -284,5 +381,15 @@ export const fetchJobsFromApi = async (
     jds[p.jd.id] = p.jd;
   }
 
-  return { jobs, jds };
+  const pipelineMetrics: PipelineMetrics = {
+    rawCount,
+    normalizedCount,
+    locationFilteredCount,
+    relevanceFilteredCount,
+    workModeFilteredCount,
+    dedupedCount,
+    finalCount: jobs.length
+  };
+
+  return { jobs, jds, pipelineMetrics };
 };

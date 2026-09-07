@@ -250,8 +250,9 @@ Return ONLY a JSON object with this structure:
       maxOutputTokens: 2000
     }
   };
+  const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
 
-  const response = await fetch('/api/analyze-jd', {
+  const response = await fetch(`${baseUrl}/api/analyze-jd`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody)

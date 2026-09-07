@@ -10,9 +10,12 @@ import {
   Sparkles,
   AlertCircle,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  Globe,
+  Building
 } from 'lucide-react';
 import { Job } from '../../types';
+import { COUNTRY_LOCATION_DATA, getStatesForCountry, getCitiesForState } from '../../data/locationData';
 
 export const JobSearchPage: React.FC = () => {
   const navigate = useNavigate();
@@ -28,23 +31,66 @@ export const JobSearchPage: React.FC = () => {
   } = useWorkflow();
 
   const [searchQuery, setSearchQuery] = useState(profile.jobRole || '');
-  const [selectedWorkMode, setSelectedWorkMode] = useState<string>('ALL');
+  const [selectedCountry, setSelectedCountry] = useState<string>(profile.preferences?.country || 'India');
+  const [selectedState, setSelectedState] = useState<string>(profile.preferences?.state || 'Andhra Pradesh');
+  const [selectedCity, setSelectedCity] = useState<string>(profile.preferences?.city || '');
+  const [selectedWorkMode, setSelectedWorkMode] = useState<string>(profile.preferences?.workMode || 'ALL');
+
+  // Keep state in sync with profile preferences if updated from storage
+  useEffect(() => {
+    if (profile.preferences) {
+      if (profile.preferences.country) setSelectedCountry(profile.preferences.country);
+      if (profile.preferences.state) setSelectedState(profile.preferences.state);
+      if (profile.preferences.city !== undefined) setSelectedCity(profile.preferences.city);
+      if (profile.preferences.workMode) setSelectedWorkMode(profile.preferences.workMode);
+    }
+  }, [profile.preferences]);
+
+  // Handle Country selection change: reset state & city
+  const handleCountryChange = (newCountry: string) => {
+    setSelectedCountry(newCountry);
+    const availableStates = getStatesForCountry(newCountry);
+    const newSt = availableStates.length > 0 ? availableStates[0] : '';
+    setSelectedState(newSt);
+    setSelectedCity('');
+  };
+
+  // Handle State selection change: reset city
+  const handleStateChange = (newState: string) => {
+    setSelectedState(newState);
+    setSelectedCity('');
+  };
 
   // Trigger initial job search if profile exists and no jobs loaded yet
   useEffect(() => {
     if (jobs.length === 0 && profile.jobRole && !isLoading && !jobSearchError) {
-      runJobSearch(searchQuery, { workMode: selectedWorkMode === 'ALL' ? undefined : selectedWorkMode });
+      runJobSearch(searchQuery, {
+        workMode: selectedWorkMode === 'ALL' ? undefined : selectedWorkMode,
+        country: selectedCountry,
+        state: selectedState,
+        city: selectedCity
+      });
     }
   }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    runJobSearch(searchQuery, { workMode: selectedWorkMode === 'ALL' ? undefined : selectedWorkMode });
+    runJobSearch(searchQuery, {
+      workMode: selectedWorkMode === 'ALL' ? undefined : selectedWorkMode,
+      country: selectedCountry,
+      state: selectedState,
+      city: selectedCity
+    });
   };
 
   const handleWorkModeChange = (newMode: string) => {
     setSelectedWorkMode(newMode);
-    runJobSearch(searchQuery, { workMode: newMode === 'ALL' ? undefined : newMode });
+    runJobSearch(searchQuery, {
+      workMode: newMode === 'ALL' ? undefined : newMode,
+      country: selectedCountry,
+      state: selectedState,
+      city: selectedCity
+    });
   };
 
   const handleSelectJob = async (job: Job) => {
@@ -198,39 +244,112 @@ export const JobSearchPage: React.FC = () => {
         </Card>
       )}
 
-      {/* Search & Filter Bar */}
+      {/* Search & Location Preferences Control Box */}
       <form onSubmit={handleSearchSubmit}>
-        <Card className="p-4 flex flex-col md:flex-row items-center gap-4 bg-[#1A1A1A] border-white/12">
-          <div className="relative flex-1 w-full">
-            <Input
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search job title, company, skills, or keywords..."
-              className="pl-10 text-xs bg-[#111111]"
-            />
-            <Search className="w-4 h-4 text-neutral-500 absolute left-3.5 top-3" />
-          </div>
-
-          <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
-            <select
-              value={selectedWorkMode}
-              onChange={e => handleWorkModeChange(e.target.value)}
-              className="px-4 py-2.5 rounded-xl border border-white/15 text-xs bg-[#111111] text-white focus:outline-none focus:border-white/35 font-semibold"
-            >
-              <option value="ALL">All Work Modes</option>
-              <option value="HYBRID">Hybrid</option>
-              <option value="REMOTE">Remote</option>
-              <option value="ONSITE">On-site</option>
-            </select>
+        <Card className="p-5 bg-[#1A1A1A] border-white/12 space-y-4">
+          <div className="flex flex-col md:flex-row items-center gap-4">
+            <div className="relative flex-1 w-full">
+              <Input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search job title, company, skills, or keywords..."
+                className="pl-10 text-xs bg-[#111111]"
+              />
+              <Search className="w-4 h-4 text-neutral-500 absolute left-3.5 top-3" />
+            </div>
 
             <Button
               type="submit"
               variant="whitePill"
               size="md"
               disabled={isLoading}
+              className="w-full md:w-auto shrink-0"
+              leftIcon={<Search className="w-4 h-4 text-black" />}
             >
-              {isLoading ? 'Searching...' : 'Search'}
+              {isLoading ? 'Searching...' : 'Search Jobs'}
             </Button>
+          </div>
+
+          {/* Structured Geographic Location Preferences Bar */}
+          <div className="pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            {/* Country Selector */}
+            <div>
+              <label className="block text-[11px] font-semibold text-neutral-300 mb-1 flex items-center gap-1 font-mono">
+                <Globe className="w-3.5 h-3.5 text-neutral-400" /> Country <span className="text-red-400">*</span>
+              </label>
+              <select
+                id="country-selector"
+                value={selectedCountry}
+                onChange={e => handleCountryChange(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs bg-[#111111] text-white focus:outline-none focus:border-white/35 font-medium"
+              >
+                {COUNTRY_LOCATION_DATA.map(c => (
+                  <option key={c.code} value={c.country}>
+                    {c.country}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* State / Province Selector */}
+            <div>
+              <label className="block text-[11px] font-semibold text-neutral-300 mb-1 flex items-center gap-1 font-mono">
+                <MapPin className="w-3.5 h-3.5 text-neutral-400" /> State / Province <span className="text-red-400">*</span>
+              </label>
+              <select
+                id="state-selector"
+                value={selectedState}
+                onChange={e => handleStateChange(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs bg-[#111111] text-white focus:outline-none focus:border-white/35 font-medium"
+              >
+                {getStatesForCountry(selectedCountry).map((st, idx) => (
+                  <option key={idx} value={st}>
+                    {st}
+                  </option>
+                ))}
+                {getStatesForCountry(selectedCountry).length === 0 && (
+                  <option value="">Country Level (No states defined)</option>
+                )}
+              </select>
+            </div>
+
+            {/* Optional City Input */}
+            <div>
+              <label className="block text-[11px] font-semibold text-neutral-300 mb-1 flex items-center gap-1 font-mono">
+                <Building className="w-3.5 h-3.5 text-neutral-400" /> City <span className="text-neutral-500 font-normal">(Optional)</span>
+              </label>
+              <Input
+                id="city-input"
+                list="city-options"
+                value={selectedCity}
+                onChange={e => setSelectedCity(e.target.value)}
+                placeholder="e.g. Hyderabad, Visakhapatnam"
+                className="text-xs bg-[#111111] py-2"
+              />
+              <datalist id="city-options">
+                {getCitiesForState(selectedCountry, selectedState).map((c, i) => (
+                  <option key={i} value={c} />
+                ))}
+              </datalist>
+            </div>
+
+            {/* Work Mode Selector */}
+            <div>
+              <label className="block text-[11px] font-semibold text-neutral-300 mb-1 font-mono">
+                Work Mode
+              </label>
+              <select
+                id="workmode-selector"
+                value={selectedWorkMode}
+                onChange={e => handleWorkModeChange(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs bg-[#111111] text-white focus:outline-none focus:border-white/35 font-semibold"
+              >
+                <option value="ALL">Any / All Modes</option>
+                <option value="HYBRID">Hybrid</option>
+                <option value="REMOTE">Remote</option>
+                <option value="ONSITE">On-site</option>
+              </select>
+            </div>
           </div>
         </Card>
       </form>
@@ -331,24 +450,24 @@ export const JobSearchPage: React.FC = () => {
       {!isLoading && filteredJobs.length === 0 && (
         <EmptyState
           icon={<Search className="w-10 h-10 text-neutral-500" />}
-          title="No Matching Jobs Found"
-          description={
-            jobs.length === 0
-              ? 'No jobs have been fetched yet. Click "Refresh Jobs" or search with a specific query.'
-              : 'No jobs match your current search query or work mode filter. Try adjusting your query or resetting filters.'
-          }
+          title="No Jobs Found for Your Location"
+          description={`No jobs found for your selected location (${selectedCity ? `${selectedCity}, ` : ''}${selectedState ? `${selectedState}, ` : ''}${selectedCountry}) and career preferences.`}
           action={
             <Button
               variant="whitePill"
               size="sm"
               onClick={() => {
-                setSearchQuery(profile.jobRole || '');
-                setSelectedWorkMode('ALL');
-                runJobSearch(profile.jobRole || 'Software Engineer', { workMode: undefined });
+                setSelectedCity('');
+                runJobSearch(profile.jobRole || 'Software Engineer', {
+                  workMode: 'ALL',
+                  country: selectedCountry,
+                  state: selectedState,
+                  city: ''
+                });
               }}
               leftIcon={<RefreshCw className="w-4 h-4 text-black" />}
             >
-              Fetch Target Jobs
+              Modify Location & Search Preferences
             </Button>
           }
         />
