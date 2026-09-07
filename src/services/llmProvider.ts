@@ -145,7 +145,7 @@ export async function generateLLMResponse<T = any>(
     return {
       text,
       provider: 'GEMINI',
-      model: 'gemini-3.6-flash',
+      model: 'gemini-1.5-flash',
       structuredJson
     };
   }

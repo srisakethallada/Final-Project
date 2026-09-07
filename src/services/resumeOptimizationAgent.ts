@@ -5,6 +5,7 @@
 
 import { UserProfile, ResumeVersion, Job, JobDescription, JDAnalysis, AgentExecutionLog, AG004ValidationResult } from '../types';
 import { generateLLMResponse } from './llmProvider';
+import { gatherCandidateEvidence, checkSkillSupportInEvidence, normalizeSkillName } from './jdAnalysisAgent';
 
 export interface AG004OptimizationResult {
   tailoredVersion: ResumeVersion;
@@ -97,6 +98,11 @@ export interface AG004LLMResponseSchema {
   structuredResume?: StructuredResumeSchema;
 }
 
+// Helper to escape regex special characters
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ============================================================================
 // STAGE 3: FACTUAL GROUND-TRUTH VALIDATION LAYER
 // ============================================================================
@@ -111,22 +117,9 @@ export function validateFactualGroundTruth(
   unsupportedClaimsCount: number;
 } {
   const unsupportedClaims: string[] = [];
+  const candidateIndex = gatherCandidateEvidence(groundTruth);
 
-  // Ground truth skill evidence set
-  const candidateLowerSet = new Set<string>();
-  [...(groundTruth.skills || []), ...(groundTruth.technicalSkills || []), ...(groundTruth.softSkills || [])].forEach(s => {
-    if (s && s.trim()) candidateLowerSet.add(s.trim().toLowerCase());
-  });
-
-  const candidateEvidenceText = [
-    groundTruth.headline || '',
-    groundTruth.bio || '',
-    ...(groundTruth.experience || []).flatMap(e => [e.role, e.company, ...(e.highlights || [])]),
-    ...(groundTruth.projects || []).flatMap(p => [p.title, p.description, ...(p.technologies || [])]),
-    ...(groundTruth.certifications || []).map(c => c.name)
-  ].join(' ').toLowerCase();
-
-  // 1. Negative Constraint Audit: Ensure ZERO AG-003 skill gaps were fabricated into candidate skills
+  // 1. Negative Constraint Audit: Ensure ZERO genuine skill gaps (with NO evidence) were fabricated into candidate skills
   const resumeFullText = [
     tailoredSnapshot.bio || '',
     ...(tailoredSnapshot.technicalSkills || []),
@@ -137,24 +130,24 @@ export function validateFactualGroundTruth(
 
   (ag003Gaps || []).forEach(gap => {
     if (!gap || !gap.trim()) return;
-    const gapLower = gap.trim().toLowerCase();
+    const gapTrimmed = gap.trim();
     
-    // Check if gap skill is in ground-truth profile evidence
-    const isSupportedInGroundTruth = candidateLowerSet.has(gapLower) || candidateEvidenceText.includes(gapLower);
+    // Check if gap skill is in ground-truth profile evidence (secondary verification)
+    const { isMatched } = checkSkillSupportInEvidence(gapTrimmed, candidateIndex);
 
-    // If gap is NOT in ground truth, but IS in generated resume -> FABRICATION DETECTED
-    if (!isSupportedInGroundTruth && resumeFullText.includes(gapLower)) {
-      unsupportedClaims.push(`AG-003 skill gap "${gap}" was falsely added to candidate resume without supporting evidence.`);
+    // If gap has NO candidate evidence in ground truth, but IS in generated resume -> FABRICATION DETECTED
+    if (!isMatched) {
+      const gapPattern = new RegExp(`\\b${escapeRegExp(gapTrimmed.toLowerCase())}\\b`, 'i');
+      if (gapPattern.test(resumeFullText)) {
+        unsupportedClaims.push(`AG-003 skill gap "${gap}" was falsely added to candidate resume without supporting evidence.`);
+      }
     }
   });
 
-  // 2. Technical Skills Verification
+  // 2. Technical Skills Verification (using candidate evidence index)
   (tailoredSnapshot.technicalSkills || []).forEach(skill => {
-    const lower = skill.toLowerCase();
-    const isDirectMatch = candidateLowerSet.has(lower);
-    const isSubstrMatch = candidateEvidenceText.includes(lower);
-
-    if (!isDirectMatch && !isSubstrMatch) {
+    const { isMatched } = checkSkillSupportInEvidence(skill, candidateIndex);
+    if (!isMatched) {
       unsupportedClaims.push(`Technical skill "${skill}" is missing from verified AG-001 ground-truth evidence.`);
     }
   });
@@ -459,39 +452,32 @@ export async function runAG004ResumeOptimization(
   // 2. GROUND-TRUTH EVIDENCE & NEGATIVE CONSTRAINTS (SKILL GAPS)
   // --------------------------------------------------------------------------
   const candidateSkillsSet = new Set<string>();
-  const candidateLowerSet = new Set<string>();
-
-  [...(userProfile.skills || []), ...(userProfile.technicalSkills || []), ...(userProfile.softSkills || [])].forEach(s => {
-    if (s && s.trim()) {
-      candidateSkillsSet.add(s.trim());
-      candidateLowerSet.add(s.trim().toLowerCase());
-    }
-  });
-
-  const candidateEvidenceText = [
-    userProfile.headline || '',
-    userProfile.bio || '',
-    ...(userProfile.experience || []).flatMap(e => [e.role, e.company, ...(e.highlights || [])]),
-    ...(userProfile.projects || []).flatMap(p => [p.title, p.description, ...(p.technologies || [])]),
-    ...(userProfile.certifications || []).map(c => c.name)
-  ].join(' ').toLowerCase();
+  // --------------------------------------------------------------------------
+  // 2. GROUND-TRUTH EVIDENCE & SECONDARY VERIFICATION PASS
+  // --------------------------------------------------------------------------
+  const candidateIndex = gatherCandidateEvidence(userProfile);
 
   const jdRequiredSkills = analysis.requiredSkills || [];
   const jdPreferredSkills = analysis.preferredSkills || [];
-  const allJdSkills = Array.from(new Set([...jdRequiredSkills, ...jdPreferredSkills]));
+  const ag003Gaps = analysis.skillGaps || [];
+  const allJdSkills = Array.from(new Set([...jdRequiredSkills, ...jdPreferredSkills, ...ag003Gaps]));
 
   const supportedSkills: string[] = [];
   const unsupportedJdSkillsOmitted: string[] = [];
 
   allJdSkills.forEach(jdSkill => {
-    const lower = jdSkill.toLowerCase();
-    const isDirectMatch = candidateLowerSet.has(lower);
-    const isSubstrMatch = candidateEvidenceText.includes(lower);
+    if (!jdSkill || !jdSkill.trim()) return;
+    const { isMatched } = checkSkillSupportInEvidence(jdSkill, candidateIndex);
 
-    if (isDirectMatch || isSubstrMatch) {
-      supportedSkills.push(jdSkill);
+    if (isMatched) {
+      const canonical = normalizeSkillName(jdSkill);
+      if (!supportedSkills.includes(canonical)) {
+        supportedSkills.push(canonical);
+      }
     } else {
-      unsupportedJdSkillsOmitted.push(jdSkill);
+      if (!unsupportedJdSkillsOmitted.includes(jdSkill)) {
+        unsupportedJdSkillsOmitted.push(jdSkill);
+      }
     }
   });
 
@@ -512,11 +498,11 @@ CRITICAL DIRECTIVES & ABSOLUTE TRUTHFULNESS BOUNDARIES:
 2. JOB DESCRIPTION IS EMPLOYER REQUIREMENTS ONLY.
    - The Job Description describes what the employer wants, NOT what the candidate possesses.
    - NEVER infer candidate possession of a skill merely because the JD requests it.
-   - AG-003 SKILL GAPS (${JSON.stringify(analysis.skillGaps || [])}) MUST ACT AS NEGATIVE CONSTRAINTS.
-   - DO NOT ADD SKILL GAPS (${JSON.stringify(analysis.skillGaps || [])}) or UNSUPPORTED JD SKILLS (${JSON.stringify(unsupportedJdSkillsOmitted)}) to any section of the resume (summary, skills, experience, projects, or achievements). YOU MUST OMIT THEM.
+   - UNSUPPORTED JD SKILLS (${JSON.stringify(unsupportedJdSkillsOmitted)}) MUST ACT AS STRICT NEGATIVE CONSTRAINTS.
+   - DO NOT ADD UNSUPPORTED JD SKILLS (${JSON.stringify(unsupportedJdSkillsOmitted)}) to any section of the resume (summary, skills, experience, projects, or achievements). YOU MUST OMIT THEM.
 
 3. OPTIMIZATION & REORDERING RULES:
-   - Rank and categorize verified candidate skills to bring matched JD requirements to the top of each category.
+   - Rank and categorize verified candidate skills to bring verified JD requirements (${JSON.stringify(supportedSkills)}) to the top of each category.
    - Refine experience and project bullet points using active verbs and professional phrasing while preserving 100% factual accuracy of the candidate's actual work history.
    - Write a concise, targeted professional summary reflecting the candidate's actual role and verified skills.
 
@@ -531,8 +517,8 @@ Job Description Text: ${jobDescription?.fullText || job.title}
 
 AG-003 MATCH SCORE ANALYSIS CONTEXT:
 Match Score: ${analysis.matchScore}%
-Matched Skills: ${JSON.stringify(analysis.matchedSkills || [])}
-Skill Gaps Identified by AG-003 (NEGATIVE CONSTRAINTS): ${JSON.stringify(analysis.skillGaps || [])}
+Verified Matched JD Skills: ${JSON.stringify(supportedSkills)}
+Genuine Skill Gaps (STRICT NEGATIVE CONSTRAINTS): ${JSON.stringify(unsupportedJdSkillsOmitted)}
 
 CANDIDATE GROUND TRUTH PROFILE EVIDENCE (STRICT BOUNDARY):
 Headline: ${userProfile.headline}
@@ -582,7 +568,7 @@ Return a single JSON object with exact fields:
 
     const response = await generateLLMResponse<AG004LLMResponseSchema>({
       provider: 'GEMINI',
-      model: 'gemini-3.6-flash',
+      model: 'gemini-1.5-flash',
       systemInstruction,
       prompt: userPrompt,
       responseFormat: 'json'
@@ -597,7 +583,7 @@ Return a single JSON object with exact fields:
 
   // Fallback deterministic formatting if LLM call is unavailable
   if (!parsedOutput) {
-    const matchedLower = new Set((analysis.matchedSkills || []).map(s => s.toLowerCase()));
+    const matchedLower = new Set(supportedSkills.map(s => s.toLowerCase()));
 
     const sortedTech = [...userProfile.technicalSkills].sort((a, b) => {
       const aMatch = matchedLower.has(a.toLowerCase()) ? 1 : 0;
@@ -618,7 +604,7 @@ Return a single JSON object with exact fields:
       optimizedExperience: userProfile.experience || [],
       optimizedProjects: userProfile.projects || [],
       explanations: [
-        `Prioritized ${analysis.matchedSkills?.length || 0} matched technical skills (${analysis.matchedSkills?.slice(0, 4).join(', ') || 'verified skills'}) at the top of the technical skills section.`,
+        `Prioritized ${supportedSkills.length} verified matched technical skills (${supportedSkills.slice(0, 4).join(', ') || 'verified skills'}) at the top of the technical skills section.`,
         `Aligned experience and project highlights with target role: "${job.title}".`,
         `Preserved 100% of candidate source ground truth with zero fabricated claims.`
       ],
@@ -626,10 +612,10 @@ Return a single JSON object with exact fields:
     };
   }
 
-  // Prune any unverified skills from Gemini output
+  // Prune any unverified skills from Gemini output using candidate evidence index
   const sanitizedTechSkills = (parsedOutput.prioritizedTechnicalSkills || userProfile.technicalSkills).filter(skill => {
-    const lower = skill.toLowerCase();
-    return candidateLowerSet.has(lower) || candidateEvidenceText.includes(lower);
+    const { isMatched } = checkSkillSupportInEvidence(skill, candidateIndex);
+    return isMatched;
   });
 
   // Retain ground-truth candidate skills so valid evidence is preserved

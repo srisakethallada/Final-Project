@@ -74,9 +74,18 @@ const TECHNICAL_TAXONOMY: TaxonomyCategory[] = [
     ]
   },
   {
-    category: 'Cloud Platforms',
+    category: 'Cloud Platforms & Services',
     skills: [
       { canonical: 'AWS', synonyms: ['aws', 'amazon web services', 'amazon cloud'], pattern: /\b(aws|amazon\s+web\s+services)\b/i },
+      { canonical: 'Amazon EC2', synonyms: ['ec2', 'amazon ec2', 'aws ec2'], pattern: /\b(ec2|amazon\s+ec2)\b/i },
+      { canonical: 'Amazon S3', synonyms: ['s3', 'amazon s3', 'aws s3'], pattern: /\b(s3|amazon\s+s3)\b/i },
+      { canonical: 'Amazon RDS', synonyms: ['rds', 'amazon rds', 'aws rds'], pattern: /\b(rds|amazon\s+rds)\b/i },
+      { canonical: 'AWS Lambda', synonyms: ['aws lambda', 'lambda'], pattern: /\b(aws\s+lambda|\blambda\b)\b/i },
+      { canonical: 'Auto Scaling', synonyms: ['auto scaling', 'auto scaling groups', 'asg'], pattern: /\b(auto\s+scaling|asg)\b/i },
+      { canonical: 'AWS CodePipeline', synonyms: ['aws codepipeline', 'codepipeline'], pattern: /\b(aws\s+codepipeline|codepipeline)\b/i },
+      { canonical: 'AWS CodeBuild', synonyms: ['aws codebuild', 'codebuild'], pattern: /\b(aws\s+codebuild|codebuild)\b/i },
+      { canonical: 'AWS CodeDeploy', synonyms: ['aws codedeploy', 'codedeploy'], pattern: /\b(aws\s+codedeploy|codedeploy)\b/i },
+      { canonical: 'Amazon CloudWatch', synonyms: ['cloudwatch', 'aws cloudwatch', 'amazon cloudwatch'], pattern: /\b(cloudwatch|amazon\s+cloudwatch)\b/i },
       { canonical: 'Azure', synonyms: ['azure', 'microsoft azure'], pattern: /\b(azure|microsoft\s+azure)\b/i },
       { canonical: 'GCP', synonyms: ['gcp', 'google cloud', 'google cloud platform'], pattern: /\b(gcp|google\s+cloud|google\s+cloud\s+platform)\b/i },
       { canonical: 'Heroku', synonyms: ['heroku'] },
@@ -87,9 +96,9 @@ const TECHNICAL_TAXONOMY: TaxonomyCategory[] = [
   {
     category: 'DevOps & Containerization',
     skills: [
-      { canonical: 'Docker', synonyms: ['docker', 'containerization', 'containers'], pattern: /\b(docker|containerization)\b/i },
+      { canonical: 'Docker', synonyms: ['docker', 'containerization', 'containers', 'dockerfile', 'docker hub'], pattern: /\b(docker|containerization|dockerfile|docker\s+hub)\b/i },
       { canonical: 'Kubernetes', synonyms: ['kubernetes', 'k8s'], pattern: /\b(kubernetes|k8s)\b/i },
-      { canonical: 'Terraform', synonyms: ['terraform', 'tf'] },
+      { canonical: 'Terraform', synonyms: ['terraform', 'tf'], pattern: /\b(terraform|\btf\b)\b/i },
       { canonical: 'Ansible', synonyms: ['ansible'] },
       { canonical: 'Jenkins', synonyms: ['jenkins'] },
       { canonical: 'CircleCI', synonyms: ['circleci', 'circle ci'] },
@@ -99,7 +108,7 @@ const TECHNICAL_TAXONOMY: TaxonomyCategory[] = [
       { canonical: 'Puppet', synonyms: ['puppet'] },
       { canonical: 'Chef', synonyms: ['chef'] },
       { canonical: 'Nginx', synonyms: ['nginx'] },
-      { canonical: 'Apache', synonyms: ['apache', 'httpd'] },
+      { canonical: 'Apache Tomcat', synonyms: ['apache tomcat', 'tomcat', 'apache'], pattern: /\b(apache\s+tomcat|\btomcat\b|\bapache\b)\b/i },
       { canonical: 'Linux', synonyms: ['linux', 'ubuntu', 'centos', 'rhel', 'debian', 'alpine'], pattern: /\b(linux|ubuntu|centos|rhel|debian)\b/i },
       { canonical: 'Unix', synonyms: ['unix'] },
       { canonical: 'CI/CD', synonyms: ['ci/cd', 'cicd', 'continuous integration', 'continuous deployment'], pattern: /\b(ci\/cd|cicd|continuous\s+integration)\b/i }
@@ -123,14 +132,16 @@ const TECHNICAL_TAXONOMY: TaxonomyCategory[] = [
     ]
   },
   {
-    category: 'Tools & Version Control',
+    category: 'Tools & AI',
     skills: [
       { canonical: 'Git', synonyms: ['git', 'github', 'gitlab', 'bitbucket'], pattern: /\b(git|github|gitlab|bitbucket)\b/i },
       { canonical: 'Jira', synonyms: ['jira'] },
       { canonical: 'Confluence', synonyms: ['confluence'] },
       { canonical: 'Postman', synonyms: ['postman'] },
+      { canonical: 'VS Code', synonyms: ['vs code', 'vscode', 'visual studio code'], pattern: /\b(vs\s*code|vscode|visual\s+studio\s+code)\b/i },
       { canonical: 'Webpack', synonyms: ['webpack'] },
-      { canonical: 'Vite', synonyms: ['vite'] }
+      { canonical: 'Vite', synonyms: ['vite'] },
+      { canonical: 'LLMs & Generative AI', synonyms: ['llm', 'llms', 'groq', 'groq llm', 'generative ai', 'genai', 'langchain', 'openai'], pattern: /\b(llm|llms|groq|generative\s+ai|genai|langchain|openai)\b/i }
     ]
   },
   {
@@ -381,6 +392,28 @@ export const gatherCandidateEvidence = (profile: UserProfile): CandidateEvidence
   });
 
   const fullEvidenceText = textChunks.join(' ').toLowerCase();
+
+  // 6. Deep Taxonomy Extraction Pass across entire candidate profile text (experience highlights, project titles & descriptions)
+  TECHNICAL_TAXONOMY.forEach(cat => {
+    cat.skills.forEach(skill => {
+      let matched = false;
+      if (skill.pattern) {
+        matched = skill.pattern.test(fullEvidenceText);
+      } else {
+        matched = skill.synonyms.some(syn => new RegExp(`\\b${escapeRegExp(syn)}\\b`, 'i').test(fullEvidenceText));
+      }
+
+      if (matched) {
+        skillsSet.add(skill.canonical.toLowerCase());
+        skill.synonyms.forEach(syn => skillsSet.add(syn.toLowerCase()));
+        evidenceItems.push({
+          term: skill.canonical,
+          source: 'fullEvidenceText',
+          snippet: `Found candidate evidence for "${skill.canonical}" in profile text/projects`
+        });
+      }
+    });
+  });
 
   return {
     skillsSet,

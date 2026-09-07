@@ -14,7 +14,9 @@ import {
   Layers,
   Info,
   Check,
-  Loader2
+  Loader2,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 
 export const ResumeOptimizationPage: React.FC = () => {
@@ -31,6 +33,7 @@ export const ResumeOptimizationPage: React.FC = () => {
   } = useWorkflow();
 
   const [optError, setOptError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // --------------------------------------------------------------------------
   // EMPTY STATE 1: NO RESUME / PROFILE
@@ -176,7 +179,7 @@ export const ResumeOptimizationPage: React.FC = () => {
   const currentSnapshot = tailoredResume?.profileSnapshot || profile;
   const isApproved = tailoredResume && (tailoredResume as any).isApproved === true;
 
-  // Extract explanations and omitted skills
+  // Extract explanations, verified skills, and omitted skills
   const explanations =
     tailoredResume?.strengths && tailoredResume.strengths.length > 0
       ? tailoredResume.strengths
@@ -186,37 +189,75 @@ export const ResumeOptimizationPage: React.FC = () => {
           `Structured for 100% single-pass ATS parse compatibility`
         ];
 
+  const verifiedSkills = tailoredResume?.matchedKeywords || jdAnalysis?.matchedSkills || [];
   const omittedSkills = (tailoredResume as any)?.unsupportedJdSkillsOmitted || (jdAnalysis?.skillGaps || []);
+
+  const getFullResumeText = () => {
+    const lines: string[] = [];
+    lines.push(`==================================================`);
+    lines.push(user.name || 'Candidate Name');
+    lines.push(`${currentSnapshot.location || profile.location || ''} | ${user.email || ''} ${currentSnapshot.phone ? `| ${currentSnapshot.phone}` : ''}`);
+    lines.push(`Target Role: ${selectedJob.title} at ${selectedJob.company}`);
+    lines.push(`==================================================\n`);
+
+    if (currentSnapshot.bio) {
+      lines.push(`PROFESSIONAL SUMMARY`);
+      lines.push(`--------------------`);
+      lines.push(`${currentSnapshot.bio}\n`);
+    }
+
+    if (currentSnapshot.technicalSkills && currentSnapshot.technicalSkills.length > 0) {
+      lines.push(`TECHNICAL SKILLS`);
+      lines.push(`----------------`);
+      lines.push(`${currentSnapshot.technicalSkills.join(', ')}\n`);
+    }
+
+    if (currentSnapshot.experience && currentSnapshot.experience.length > 0) {
+      lines.push(`WORK EXPERIENCE`);
+      lines.push(`---------------`);
+      currentSnapshot.experience.forEach(exp => {
+        lines.push(`${exp.role} | ${exp.company} (${exp.startDate} - ${exp.endDate || 'Present'})`);
+        (exp.highlights || []).forEach(h => lines.push(`• ${h}`));
+        lines.push('');
+      });
+    }
+
+    if (currentSnapshot.projects && currentSnapshot.projects.length > 0) {
+      lines.push(`PROJECTS`);
+      lines.push(`--------`);
+      currentSnapshot.projects.forEach(p => {
+        lines.push(`${p.title}`);
+        if (p.description) lines.push(`• ${p.description}`);
+        if (p.technologies && p.technologies.length > 0) {
+          lines.push(`  Technologies: ${p.technologies.join(', ')}`);
+        }
+        lines.push('');
+      });
+    }
+
+    if (currentSnapshot.education && currentSnapshot.education.length > 0) {
+      lines.push(`EDUCATION`);
+      lines.push(`---------`);
+      currentSnapshot.education.forEach(edu => {
+        lines.push(`${edu.degree} in ${edu.fieldOfStudy} - ${edu.institution} (${edu.startDate} - ${edu.endDate})`);
+      });
+      lines.push('');
+    }
+
+    if (currentSnapshot.certifications && currentSnapshot.certifications.length > 0) {
+      lines.push(`CERTIFICATIONS`);
+      lines.push(`--------------`);
+      currentSnapshot.certifications.forEach(c => {
+        lines.push(`${c.name} - ${c.issuer || 'Certified'} (${c.issueDate || (c as any).date || ''})`);
+      });
+    }
+
+    return lines.join('\n');
+  };
 
   const handleDownloadPdf = () => {
     if (!tailoredResume) return;
-    const content = `==================================================
-${user.name || 'Candidate Name'}
-${currentSnapshot.location || profile.location || ''} | ${user.email || ''} ${currentSnapshot.phone ? `| ${currentSnapshot.phone}` : ''}
-Target Role: ${selectedJob.title} at ${selectedJob.company}
-==================================================
-
-PROFESSIONAL SUMMARY
---------------------
-${currentSnapshot.bio || ''}
-
-TECHNICAL SKILLS
-----------------
-${(currentSnapshot.technicalSkills || []).join(', ')}
-
-WORK EXPERIENCE
----------------
-${(currentSnapshot.experience || []).map(exp => `${exp.role} - ${exp.company} (${exp.startDate} - ${exp.endDate || 'Present'})\n${(exp.highlights || []).map(h => `  * ${h}`).join('\n')}`).join('\n\n')}
-
-KEY PROJECTS
-------------
-${(currentSnapshot.projects || []).map(p => `${p.title}\n${p.description}\nTechnologies: ${(p.technologies || []).join(', ')}`).join('\n\n')}
-
-EDUCATION
----------
-${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfStudy} - ${edu.institution} (${edu.startDate} - ${edu.endDate})`).join('\n')}
-`;
-
+    const content = getFullResumeText();
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -226,8 +267,15 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
     URL.revokeObjectURL(url);
   };
 
+  const handleCopyText = () => {
+    const content = getFullResumeText();
+    navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="space-y-8 text-white font-sans">
+    <div className="space-y-8 text-white font-sans pb-16">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -243,8 +291,11 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
         <div className="flex items-center gap-3">
           {tailoredResume && (
             <>
+              <Button variant="outline" size="sm" onClick={handleCopyText} leftIcon={<Copy className="w-4 h-4" />}>
+                {copied ? 'Copied to Clipboard!' : 'Copy Text'}
+              </Button>
               <Button variant="outline" size="sm" onClick={handleDownloadPdf} leftIcon={<Download className="w-4 h-4" />}>
-                Download Text / PDF
+                Download ATS Resume (PDF)
               </Button>
               <Button variant="whitePill" size="sm" onClick={() => navigate('/app/cover-letter')} rightIcon={<ArrowRight className="w-4 h-4 text-black" />}>
                 Generate Cover Letter (AG-005)
@@ -277,17 +328,6 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
         )}
       </Card>
 
-      {/* MANDATORY TRUTHFULNESS GUARDRAIL BANNER */}
-      <Card className="p-4 bg-[#111111] border-emerald-800/50 flex items-start gap-3">
-        <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
-        <div className="text-xs space-y-0.5">
-          <span className="font-bold text-emerald-300 block">Strict Fabrication Guardrail Enforced:</span>
-          <span className="text-neutral-300 leading-relaxed">
-            This system does NOT fabricate work experience, skills, projects, certifications, or qualifications. Every item in this tailored resume is grounded strictly in your verified source candidate profile evidence.
-          </span>
-        </div>
-      </Card>
-
       {/* MULTI-STAGE VALIDATION PIPELINE BADGE & CHECKLIST CARD */}
       {tailoredResume && (
         <Card className={`p-5 border flex flex-col gap-4 ${tailoredResume.isVerified !== false ? 'bg-emerald-950/20 border-emerald-800/50' : 'bg-red-950/20 border-red-800/50'}`}>
@@ -295,7 +335,7 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
             <div className="flex items-center gap-2">
               <ShieldCheck className={`w-5 h-5 ${tailoredResume.isVerified !== false ? 'text-emerald-400' : 'text-red-400'}`} />
               <h3 className="font-extrabold text-sm uppercase tracking-wider text-white">
-                {tailoredResume.isVerified !== false ? 'RESUME VERIFIED' : 'RESUME VALIDATION FAILED'}
+                {tailoredResume.isVerified !== false ? 'RESUME VERIFIED & ATS VALIDATED' : 'RESUME VALIDATION FAILED'}
               </h3>
             </div>
             <Badge variant={tailoredResume.isVerified !== false ? 'success' : 'danger'}>
@@ -310,15 +350,15 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
             </div>
             <div className="flex items-center gap-2 text-neutral-300">
               <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Candidate information verified</span>
+              <span>Candidate facts verified against AG-001</span>
             </div>
             <div className="flex items-center gap-2 text-neutral-300">
               <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Skills verified against source profile</span>
+              <span>Skill evidence verified across profile & projects</span>
             </div>
             <div className="flex items-center gap-2 text-neutral-300">
               <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>ATS structure validated</span>
+              <span>ATS structure validated for machine parsing</span>
             </div>
             <div className="flex items-center gap-2 text-neutral-300">
               <Check className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -334,6 +374,62 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
             "ATS-friendly and validated for machine-readable structure."
           </div>
         </Card>
+      )}
+
+      {/* ANALYSIS PANELS: VERIFIED ALIGNMENT & OMITTED UNSUPPORTED SKILLS */}
+      {tailoredResume && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* VERIFIED JD ALIGNMENT PANEL (PART S) */}
+          <Card className="p-5 bg-emerald-950/20 border-emerald-800/40 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <h3 className="font-bold text-sm text-emerald-300 uppercase tracking-wider">
+                Verified JD Alignment ({verifiedSkills.length})
+              </h3>
+            </div>
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              The following JD requirements were verified against your profile evidence and successfully incorporated into your tailored resume:
+            </p>
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {verifiedSkills.map((skill, idx) => (
+                <span
+                  key={idx}
+                  className="px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 inline-flex items-center gap-1"
+                >
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </Card>
+
+          {/* OMITTED UNSUPPORTED JD SKILLS PANEL (PART R) */}
+          <Card className="p-5 bg-amber-950/20 border-amber-800/40 space-y-3">
+            <div className="flex items-center gap-2">
+              <Info className="w-5 h-5 text-amber-400 shrink-0" />
+              <h3 className="font-bold text-sm text-amber-300 uppercase tracking-wider">
+                Omitted Unsupported JD Skills ({omittedSkills.length})
+              </h3>
+            </div>
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              The following JD requirements were omitted from your resume because no supporting candidate evidence was found in your profile or experience:
+            </p>
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {omittedSkills.length > 0 ? (
+                omittedSkills.map((gap, idx) => (
+                  <Badge key={idx} variant="warning" size="sm">
+                    {gap}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-xs text-neutral-400 italic">None — All extracted JD skills are supported by candidate evidence!</span>
+              )}
+            </div>
+            <div className="text-[11px] text-amber-400/80 italic border-t border-amber-900/30 pt-2">
+              Omitted to uphold the anti-fabrication safeguard. No unverified skills were added.
+            </div>
+          </Card>
+        </div>
       )}
 
       {optError && (
@@ -368,193 +464,169 @@ ${(currentSnapshot.education || []).map(edu => `${edu.degree} in ${edu.fieldOfSt
 
       {/* TAILORED RESUME PREVIEW & APPROVAL ACTION BAR */}
       {tailoredResume && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left 2 Columns: ATS Document Preview (White Paper Document Preview) */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="p-8 bg-white text-slate-900 border border-slate-300 rounded-2xl shadow-2xl space-y-6 font-sans select-text">
-              {/* Header */}
-              <div className="border-b border-slate-200 pb-4 text-center">
-                <h2 className="text-2xl font-extrabold text-slate-900">{user.name || 'Candidate Name'}</h2>
-                <p className="text-xs text-slate-600 font-medium mt-1">
-                  {currentSnapshot.location || profile.location || 'Location Flexible'} • {user.email || 'email@example.com'} {currentSnapshot.phone ? `• ${currentSnapshot.phone}` : ''}
-                </p>
-                <p className="text-xs text-slate-500 font-medium italic mt-1">
-                  Target Role: {selectedJob.title}
-                </p>
-              </div>
-
-              {/* Profile Summary */}
-              {currentSnapshot.bio && (
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
-                    Professional Summary
-                  </h3>
-                  <p className="text-xs text-slate-700 leading-relaxed">
-                    {currentSnapshot.bio}
-                  </p>
-                </div>
-              )}
-
-              {/* Technical Skills */}
-              {currentSnapshot.technicalSkills && currentSnapshot.technicalSkills.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
-                    Technical Skills (ATS Keyword Optimized)
-                  </h3>
-                  <div className="flex flex-wrap gap-1.5 text-xs text-slate-700">
-                    {currentSnapshot.technicalSkills.map((skill, idx) => (
-                      <span
-                        key={idx}
-                        className={`px-2 py-0.5 rounded border text-[11px] font-medium ${
-                          jdAnalysis?.matchedSkills?.some(m => m.toLowerCase() === skill.toLowerCase())
-                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300 font-bold'
-                            : 'bg-slate-50 text-slate-800 border-slate-200'
-                        }`}
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Work Experience */}
-              {currentSnapshot.experience && currentSnapshot.experience.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
-                    Work Experience
-                  </h3>
-                  <div className="space-y-4 text-xs">
-                    {currentSnapshot.experience.map((exp, idx) => (
-                      <div key={exp.id || idx}>
-                        <div className="flex justify-between font-bold text-slate-900">
-                          <span>{exp.role} • {exp.company}</span>
-                          <span className="text-slate-500 font-normal">{exp.startDate} – {exp.endDate || 'Present'}</span>
-                        </div>
-                        {exp.highlights && exp.highlights.length > 0 && (
-                          <ul className="list-disc list-inside text-slate-700 space-y-1 mt-1 leading-relaxed">
-                            {exp.highlights.map((bullet, bIdx) => (
-                              <li key={bIdx}>{bullet}</li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Projects */}
-              {currentSnapshot.projects && currentSnapshot.projects.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
-                    Key Projects
-                  </h3>
-                  <div className="space-y-3 text-xs">
-                    {currentSnapshot.projects.map((proj, idx) => (
-                      <div key={proj.id || idx}>
-                        <div className="font-bold text-slate-900">{proj.title}</div>
-                        <p className="text-slate-700 mt-0.5 leading-relaxed">{proj.description}</p>
-                        {proj.technologies && proj.technologies.length > 0 && (
-                          <div className="text-[11px] text-slate-500 mt-1">
-                            <strong>Technologies:</strong> {proj.technologies.join(', ')}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Education */}
-              {currentSnapshot.education && currentSnapshot.education.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1 mb-2">
-                    Education
-                  </h3>
-                  <div className="space-y-2 text-xs">
-                    {currentSnapshot.education.map((edu, idx) => (
-                      <div key={edu.id || idx} className="flex justify-between">
-                        <div>
-                          <span className="font-bold text-slate-900">{edu.degree} in {edu.fieldOfStudy}</span>
-                          <div className="text-slate-600">{edu.institution}</div>
-                        </div>
-                        <span className="text-slate-500 font-normal">{edu.startDate} – {edu.endDate}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+        <div className="space-y-6">
+          {/* Controls Bar above Document */}
+          <div className="flex items-center justify-between bg-[#141414] border border-white/12 p-4 rounded-xl">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-emerald-400" />
+              <span className="text-sm font-bold text-white">Complete ATS-Friendly Resume Document</span>
+              <span className="text-xs text-neutral-400 hidden sm:inline">(Clean standalone preview — Ready for job application)</span>
             </div>
-          </div>
 
-          {/* Right Column: Optimization Summary & Approval Controls */}
-          <div className="space-y-6">
-            {/* Human Approval Action Card */}
-            <Card className="p-6 space-y-4 bg-[#141414] border-white/12">
-              <h3 className="font-bold text-base text-white flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                Human Approval Checkpoint
-              </h3>
-              <p className="text-xs text-neutral-300 leading-relaxed">
-                Review the job-tailored resume preview. When satisfied with the keyword alignment and wording, explicitly approve it to lock in version <code className="text-neutral-200">{tailoredResume.id}</code>.
-              </p>
-
+            <div className="flex items-center gap-3">
               {isApproved ? (
-                <div className="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-xl text-xs text-emerald-300 flex items-center gap-2 font-medium">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Optimized Resume Approved for Target Job</span>
+                <div className="px-3 py-1 bg-emerald-950/50 border border-emerald-800/60 rounded-lg text-xs text-emerald-300 font-semibold flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>Approved Version</span>
                 </div>
               ) : (
                 <Button
                   variant="whitePill"
-                  className="w-full"
+                  size="sm"
                   onClick={handleApproveOptimization}
                   isLoading={isLoading}
                   leftIcon={<Check className="w-4 h-4 text-black" />}
                 >
-                  Approve Optimized Resume
+                  Approve Resume Version
                 </Button>
               )}
-            </Card>
+            </div>
+          </div>
 
-            {/* Optimization Insights / Explanations */}
-            <Card className="p-6 space-y-4 bg-[#141414] border-white/12">
-              <h3 className="font-bold text-base text-white flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-                Optimizations Performed
-              </h3>
-              <div className="space-y-2 text-xs">
-                {explanations.map((exp, idx) => (
-                  <div key={idx} className="p-3 rounded-xl bg-[#111111] border border-white/10 flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span className="text-neutral-300 leading-relaxed">{exp}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            {/* Omitted Unsupported JD Skills (Truthfulness Safeguard) */}
-            {omittedSkills.length > 0 && (
-              <Card className="p-6 space-y-4 bg-[#141414] border-amber-900/40">
-                <h3 className="font-bold text-sm text-amber-300 flex items-center gap-2">
-                  <Info className="w-4 h-4 text-amber-400" />
-                  Omitted Unsupported JD Skills
-                </h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  The following JD requirements were NOT added because no supporting evidence was found in your current candidate profile:
+          {/* STANDALONE CLEAN PROFESSIONAL ATS RESUME DOCUMENT (PART H, I, J, K) */}
+          <div className="bg-white text-slate-900 border border-slate-300 rounded-2xl shadow-2xl p-8 sm:p-12 space-y-6 font-sans select-text max-w-4xl mx-auto min-h-[950px]">
+            {/* Header / Contact Banner */}
+            <div className="border-b-2 border-slate-900 pb-5 text-center">
+              <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">{user.name || 'Candidate Name'}</h1>
+              <p className="text-xs text-slate-700 font-medium mt-1.5">
+                {currentSnapshot.location || profile.location || 'Hyderabad, Telangana, India'} • {user.email || 'candidate@example.com'} {currentSnapshot.phone ? `• ${currentSnapshot.phone}` : ''}
+              </p>
+              {profile.headline && (
+                <p className="text-xs text-slate-600 font-bold uppercase tracking-wider mt-1.5">
+                  {selectedJob.title}
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {omittedSkills.map((gap, idx) => (
-                    <Badge key={idx} variant="warning" size="sm">
-                      {gap}
-                    </Badge>
+              )}
+            </div>
+
+            {/* Professional Summary */}
+            {currentSnapshot.bio && (
+              <div className="space-y-1.5">
+                <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-widest border-b border-slate-300 pb-1">
+                  Professional Summary
+                </h2>
+                <p className="text-xs text-slate-800 leading-relaxed font-normal">
+                  {currentSnapshot.bio}
+                </p>
+              </div>
+            )}
+
+            {/* Technical Skills */}
+            {currentSnapshot.technicalSkills && currentSnapshot.technicalSkills.length > 0 && (
+              <div className="space-y-2">
+                <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-widest border-b border-slate-300 pb-1">
+                  Technical Skills
+                </h2>
+                <div className="text-xs text-slate-800 space-y-1 leading-relaxed">
+                  <div>
+                    <span className="font-bold text-slate-900">Languages & Frameworks: </span>
+                    {currentSnapshot.technicalSkills.slice(0, 8).join(', ')}
+                  </div>
+                  {currentSnapshot.technicalSkills.length > 8 && (
+                    <div>
+                      <span className="font-bold text-slate-900">Cloud, DevOps & Databases: </span>
+                      {currentSnapshot.technicalSkills.slice(8).join(', ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Work Experience */}
+            {currentSnapshot.experience && currentSnapshot.experience.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-widest border-b border-slate-300 pb-1">
+                  Work Experience
+                </h2>
+                <div className="space-y-4 text-xs">
+                  {currentSnapshot.experience.map((exp, idx) => (
+                    <div key={exp.id || idx} className="space-y-1">
+                      <div className="flex justify-between font-bold text-slate-900">
+                        <span>{exp.role} — {exp.company}</span>
+                        <span className="text-slate-600 font-normal">{exp.startDate} – {exp.endDate || 'Present'}</span>
+                      </div>
+                      {exp.highlights && exp.highlights.length > 0 && (
+                        <ul className="list-disc list-inside text-slate-800 space-y-1 pl-1 leading-relaxed">
+                          {exp.highlights.map((bullet, bIdx) => (
+                            <li key={bIdx}>{bullet}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   ))}
                 </div>
-                <div className="text-[11px] text-amber-400/80 italic border-t border-amber-900/30 pt-2">
-                  Not included because no supporting evidence was found in the current resume.
+              </div>
+            )}
+
+            {/* Key Projects */}
+            {currentSnapshot.projects && currentSnapshot.projects.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-widest border-b border-slate-300 pb-1">
+                  Key Projects
+                </h2>
+                <div className="space-y-3.5 text-xs">
+                  {currentSnapshot.projects.map((proj, idx) => (
+                    <div key={proj.id || idx} className="space-y-1">
+                      <div className="font-bold text-slate-900">{proj.title}</div>
+                      {proj.description && (
+                        <p className="text-slate-800 leading-relaxed">{proj.description}</p>
+                      )}
+                      {proj.technologies && proj.technologies.length > 0 && (
+                        <div className="text-[11px] text-slate-600 font-medium">
+                          <span className="font-bold text-slate-800">Technologies: </span>
+                          {proj.technologies.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              </Card>
+              </div>
+            )}
+
+            {/* Education */}
+            {currentSnapshot.education && currentSnapshot.education.length > 0 && (
+              <div className="space-y-2">
+                <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-widest border-b border-slate-300 pb-1">
+                  Education
+                </h2>
+                <div className="space-y-2 text-xs">
+                  {currentSnapshot.education.map((edu, idx) => (
+                    <div key={edu.id || idx} className="flex justify-between">
+                      <div>
+                        <span className="font-bold text-slate-900">{edu.degree} in {edu.fieldOfStudy}</span>
+                        <div className="text-slate-700">{edu.institution}</div>
+                      </div>
+                      <span className="text-slate-600 font-normal">{edu.startDate} – {edu.endDate}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Certifications */}
+            {currentSnapshot.certifications && currentSnapshot.certifications.length > 0 && (
+              <div className="space-y-2">
+                <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-widest border-b border-slate-300 pb-1">
+                  Certifications
+                </h2>
+                <div className="space-y-1 text-xs text-slate-800">
+                  {currentSnapshot.certifications.map((c, idx) => (
+                    <div key={idx} className="flex justify-between">
+                      <span className="font-bold text-slate-900">{c.name}</span>
+                      <span className="text-slate-600 font-normal">{c.issuer || ''} {c.issueDate || (c as any).date ? `(${c.issueDate || (c as any).date})` : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>
