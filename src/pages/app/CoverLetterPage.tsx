@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { Card, Button, Badge, AgentBadge } from '../../components/ui';
+import { generateCoverLetterPdfDocument } from '../../services/pdfGeneratorService';
+import { normalizeJobTitle } from '../../services/coverLetterAgent';
 import {
   FileText,
   Copy,
@@ -13,7 +15,9 @@ import {
   AlertCircle,
   Save,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Search,
+  Check
 } from 'lucide-react';
 
 export const CoverLetterPage: React.FC = () => {
@@ -21,8 +25,12 @@ export const CoverLetterPage: React.FC = () => {
   const {
     profile,
     selectedJob,
+    selectedJD,
+    allJds,
+    jdAnalysis,
+    allJdAnalyses,
     tailoredResume,
-    activeResumeVersion,
+    allTailoredResumes,
     coverLetter,
     generateCoverLetterForSelectedJob,
     updateCoverLetterContent,
@@ -41,7 +49,7 @@ export const CoverLetterPage: React.FC = () => {
   }, [coverLetter?.content]);
 
   // --------------------------------------------------------------------------
-  // PREREQUISITE CHECK 1: NO JOB SELECTED
+  // PREREQUISITE CHECK 1: NO JOB SELECTED (AG-002)
   // --------------------------------------------------------------------------
   if (!selectedJob) {
     return (
@@ -55,7 +63,7 @@ export const CoverLetterPage: React.FC = () => {
             <Briefcase className="w-6 h-6" />
           </div>
           <div className="space-y-1">
-            <h3 className="text-lg font-semibold text-white">Select a target job before generating a cover letter.</h3>
+            <h3 className="text-lg font-semibold text-white">Select a job from Job Search before generating a cover letter.</h3>
             <p className="text-xs text-neutral-400">
               AG-005 requires a real target Job Description and Company context to produce a job-specific cover letter.
             </p>
@@ -73,10 +81,12 @@ export const CoverLetterPage: React.FC = () => {
   }
 
   // --------------------------------------------------------------------------
-  // PREREQUISITE CHECK 2: NO RESUME VERSION AVAILABLE
+  // PREREQUISITE CHECK 2: NO APPROVED JD ANALYSIS (AG-003)
   // --------------------------------------------------------------------------
-  const resumeVersionToUse = tailoredResume || activeResumeVersion;
-  if (!resumeVersionToUse) {
+  const currentJdAnalysis = allJdAnalyses[selectedJob.id] || jdAnalysis;
+  const isJdApproved = currentJdAnalysis && (currentJdAnalysis.isApprovedForOptimization === true || (currentJdAnalysis as any).approvalStatus === 'APPROVED');
+
+  if (!currentJdAnalysis || !isJdApproved) {
     return (
       <div className="space-y-6 text-white font-sans">
         <div className="flex items-center justify-between">
@@ -86,13 +96,64 @@ export const CoverLetterPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Selected Job Context */}
+        {/* Selected Job Context Banner */}
         <Card className="p-4 bg-[#111111] border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">Selected Target Job</span>
             <div className="text-base font-bold text-white mt-0.5">{selectedJob.title}</div>
             <div className="text-xs text-neutral-300">{selectedJob.company} • {selectedJob.location}</div>
           </div>
+          <Badge variant="brand" size="sm">AG-002 Active</Badge>
+        </Card>
+
+        <Card className="p-8 text-center space-y-4 bg-[#141414] border-amber-800/40 max-w-xl mx-auto my-8">
+          <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+            <Search className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold text-white">
+              {!currentJdAnalysis ? 'JD Analysis is required before generating a tailored cover letter.' : 'Approve the JD analysis before generating the cover letter.'}
+            </h3>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              AG-005 analyzes AG-003 matched skills and requirements to build a non-fabricated, job-aligned cover letter.
+            </p>
+          </div>
+          <Button
+            variant="whitePill"
+            onClick={() => navigate('/app/jobs/analysis')}
+            rightIcon={<ArrowRight className="w-4 h-4 text-black" />}
+          >
+            Review JD Analysis (AG-003)
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // PREREQUISITE CHECK 3: NO VALIDATED AG-004 TAILORED RESUME VERSION
+  // --------------------------------------------------------------------------
+  const resumeVersionToUse = allTailoredResumes[selectedJob.id] || (tailoredResume?.tailoredForJobId === selectedJob.id ? tailoredResume : undefined);
+  const isResumeVerified = resumeVersionToUse && resumeVersionToUse.isVerified !== false;
+
+  if (!resumeVersionToUse || !isResumeVerified) {
+    return (
+      <div className="space-y-6 text-white font-sans">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-white">Cover Letter Generation</h1>
+            <AgentBadge code="AG-005" name="Cover Letter" />
+          </div>
+        </div>
+
+        {/* Selected Job Context Banner */}
+        <Card className="p-4 bg-[#111111] border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">Selected Target Job</span>
+            <div className="text-base font-bold text-white mt-0.5">{selectedJob.title}</div>
+            <div className="text-xs text-neutral-300">{selectedJob.company} • {selectedJob.location}</div>
+          </div>
+          <Badge variant="brand" size="sm">AG-002 Active</Badge>
         </Card>
 
         <Card className="p-8 text-center space-y-4 bg-[#141414] border-amber-800/40 max-w-xl mx-auto my-8">
@@ -100,7 +161,7 @@ export const CoverLetterPage: React.FC = () => {
             <FileText className="w-6 h-6" />
           </div>
           <div className="space-y-1">
-            <h3 className="text-lg font-semibold text-white">Optimize your resume before generating a cover letter.</h3>
+            <h3 className="text-lg font-semibold text-white">Generate and validate the job-specific resume before generating the cover letter.</h3>
             <p className="text-xs text-neutral-400 leading-relaxed">
               AG-005 consumes the exact DATA-004 tailored resume version generated by AG-004 to ensure 100% alignment between your resume claims and cover letter.
             </p>
@@ -149,18 +210,41 @@ export const CoverLetterPage: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownload = () => {
+  const handleDownloadPdf = async () => {
     const textToDownload = editableContent || coverLetter?.content || '';
     if (!textToDownload) return;
 
-    const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Cover_Letter_${selectedJob.company.replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const candidateName = profile.headline?.split(' ')[0] && profile.headline.length < 30
+        ? profile.headline
+        : 'Sri Saketh Allada';
+
+      const candidateEmail = 'saketh.allada@gmail.com';
+      const cleanRoleTitle = coverLetter?.normalizedJobTitle || normalizeJobTitle(selectedJob.title);
+
+      const pdfResult = await generateCoverLetterPdfDocument({
+        candidateName,
+        candidateEmail,
+        candidatePhone: profile.phone,
+        candidateLocation: profile.location,
+        jobTitle: selectedJob.title,
+        normalizedJobTitle: cleanRoleTitle,
+        companyName: selectedJob.company,
+        coverLetterContent: textToDownload
+      });
+
+      const url = URL.createObjectURL(pdfResult.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = pdfResult.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setClError('Failed to generate cover letter PDF: ' + (err.message || err));
+    }
   };
+
+  const displayRoleTitle = coverLetter?.normalizedJobTitle || normalizeJobTitle(selectedJob.title);
 
   return (
     <div className="space-y-8 text-white font-sans">
@@ -182,22 +266,27 @@ export const CoverLetterPage: React.FC = () => {
               <Button variant="outline" size="sm" onClick={handleCopy} leftIcon={<Copy className="w-4 h-4" />}>
                 {copied ? 'Copied!' : 'Copy Text'}
               </Button>
-              <Button variant="outline" size="sm" onClick={handleDownload} leftIcon={<Download className="w-4 h-4" />}>
-                Download Text / PDF
+              <Button variant="whitePill" size="sm" onClick={handleDownloadPdf} leftIcon={<Download className="w-4 h-4 text-black" />}>
+                Download PDF
               </Button>
             </>
           )}
         </div>
       </div>
 
-      {/* Target Job Context Banner */}
+      {/* Target Job & Resume Link Banner */}
       <Card className="p-5 bg-[#111111] border-white/12 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Target Application Context</span>
+            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Target Position</span>
             <Badge variant="brand" size="sm">AG-002</Badge>
           </div>
-          <div className="text-base font-bold text-white">{selectedJob.title}</div>
+          <div className="text-base font-bold text-white">{displayRoleTitle}</div>
+          {selectedJob.title !== displayRoleTitle && (
+            <div className="text-xs text-neutral-400">
+              Raw posting title: <span className="text-neutral-300 font-mono text-[11px]">{selectedJob.title}</span>
+            </div>
+          )}
           <div className="text-xs text-neutral-300">{selectedJob.company} • {selectedJob.location}</div>
         </div>
 
@@ -210,13 +299,13 @@ export const CoverLetterPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* MANDATORY ANTI-FABRICATION GUARDRAIL BANNER */}
+      {/* ANTI-FABRICATION SAFEGUARD BANNER */}
       <Card className="p-4 bg-[#111111] border-emerald-800/50 flex items-start gap-3">
         <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
         <div className="text-xs space-y-0.5">
           <span className="font-bold text-emerald-300 block">Ground-Truth Cover Letter Enforced:</span>
           <span className="text-neutral-300 leading-relaxed">
-            AG-005 references only verified qualifications present in your profile and DATA-004 tailored resume. Zero unsupported claims, fake roles, or unverified achievements are added.
+            AG-005 references only verified qualifications present in your profile and DATA-004 tailored resume. Zero unsupported claims or fake skills are added.
           </span>
         </div>
       </Card>
@@ -237,7 +326,7 @@ export const CoverLetterPage: React.FC = () => {
           <div className="space-y-1">
             <h3 className="text-lg font-semibold text-white">Generate Job-Specific Cover Letter</h3>
             <p className="text-xs text-neutral-400 leading-relaxed">
-              Click below to trigger AG-005. The agent will craft a personalized cover letter for "{selectedJob.title}" at "{selectedJob.company}" using your DATA-004 resume version.
+              Click below to trigger AG-005. The agent will craft a personalized cover letter for "{displayRoleTitle}" at "{selectedJob.company}" using your DATA-004 resume version.
             </p>
           </div>
           <Button
@@ -258,13 +347,20 @@ export const CoverLetterPage: React.FC = () => {
             <div className="border-b border-slate-200 pb-4 flex justify-between items-start">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
-                  Cover Letter for {selectedJob.title}
+                  Cover Letter for {displayRoleTitle}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Company: <span className="font-semibold text-slate-800">{selectedJob.company}</span>
                 </p>
               </div>
-              <Badge variant="dark" size="sm">DATA-010 Persisted</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="dark" size="sm">DATA-010 Persisted</Badge>
+                {coverLetter.isVerified !== false && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                    <Check className="w-3 h-3 text-emerald-700" /> ATS Verified
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Editable Cover Letter Body */}
@@ -298,16 +394,27 @@ export const CoverLetterPage: React.FC = () => {
                 )}
               </div>
 
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-slate-700 hover:text-slate-900"
-                onClick={handleGenerate}
-                isLoading={isLoading}
-                leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
-              >
-                Regenerate Draft
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-slate-700 hover:text-slate-900"
+                  onClick={handleGenerate}
+                  isLoading={isLoading}
+                  leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
+                >
+                  Regenerate Cover Letter
+                </Button>
+
+                <Button
+                  variant="whitePill"
+                  size="sm"
+                  onClick={handleDownloadPdf}
+                  leftIcon={<Download className="w-3.5 h-3.5 text-black" />}
+                >
+                  Download PDF
+                </Button>
+              </div>
             </div>
           </div>
         </div>

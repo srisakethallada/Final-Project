@@ -587,17 +587,26 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const generateCoverLetterForSelectedJob = async () => {
     if (!selectedJob) {
-      throw new Error('Select a job before generating a cover letter.');
+      throw new Error('Select a job from Job Search before generating a cover letter.');
     }
-    const versionToUse = tailoredResume || activeResumeVersion;
-    if (!versionToUse) {
-      throw new Error('An optimized resume version (AG-004) is required before generating a cover letter.');
+    const targetJd = selectedJD || allJds[selectedJob.descriptionId];
+    if (!targetJd) {
+      throw new Error('JD Analysis is required before generating a tailored cover letter.');
+    }
+    const targetAnalysis = allJdAnalyses[selectedJob.id] || jdAnalysis || undefined;
+    if (!targetAnalysis) {
+      throw new Error('JD Analysis is required before generating a tailored cover letter.');
+    }
+    if (targetAnalysis.isApprovedForOptimization !== true && (targetAnalysis as any).approvalStatus !== 'APPROVED') {
+      throw new Error('Approve the JD analysis before generating the cover letter.');
+    }
+    const versionToUse = allTailoredResumes[selectedJob.id] || (tailoredResume?.tailoredForJobId === selectedJob.id ? tailoredResume : undefined) || resumeVersions.find(v => v.tailoredForJobId === selectedJob.id);
+    if (!versionToUse || versionToUse.isVerified === false) {
+      throw new Error('Generate and validate the job-specific resume before generating the cover letter.');
     }
 
     setIsLoading(true);
     try {
-      const targetJd = selectedJD || allJds[selectedJob.descriptionId];
-      const targetAnalysis = allJdAnalyses[selectedJob.id] || jdAnalysis || undefined;
       const res = await services.generateCoverLetter(
         selectedJob,
         versionToUse,
@@ -610,7 +619,7 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setAllCoverLetters(prev => ({ ...prev, [selectedJob.id]: res.coverLetter }));
       addLog(res.log);
 
-      // PERSIST DATA-010 COVER LETTER TO INDEXEDDB / STORAGE
+      // PERSIST DATA-010 COVER LETTER TO STORAGE
       await persistenceService.saveCoverLetter(res.coverLetter);
     } finally {
       setIsLoading(false);
@@ -621,7 +630,8 @@ export const WorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!coverLetter || !selectedJob) return;
     const updated: CoverLetter = {
       ...coverLetter,
-      content: newContent
+      content: newContent,
+      updatedAt: new Date().toISOString()
     };
     setCoverLetter(updated);
     setAllCoverLetters(prev => ({ ...prev, [selectedJob.id]: updated }));

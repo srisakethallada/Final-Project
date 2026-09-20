@@ -841,16 +841,16 @@ export const runJdAnalysisAgent = async (
       evidence: llmOutput.requiredExperienceYears === 0
         ? 'Not specified in job description.'
         : candidateExpYears >= llmOutput.requiredExperienceYears
-        ? `Profile shows ${candidateExpYears} years across ${profile.experience.length} recorded roles matching requirement of ${llmOutput.requiredExperienceYears} years.`
-        : `Profile records ${candidateExpYears} years across ${profile.experience.length} roles (requirement: ${llmOutput.requiredExperienceYears} years).`
+        ? `Profile shows ${candidateExpYears} years across ${(profile.experience || []).length} recorded roles matching requirement of ${llmOutput.requiredExperienceYears} years.`
+        : `Profile records ${candidateExpYears} years across ${(profile.experience || []).length} roles (requirement: ${llmOutput.requiredExperienceYears} years).`
     },
     educationAlignment: {
       candidateEducation: candidateEd,
       requiredEducation: llmOutput.requiredEducation,
-      isAligned: profile.education.length > 0,
+      isAligned: (profile.education || []).length > 0,
       evidence: llmOutput.requiredEducation.toLowerCase().includes('not specified')
         ? 'Not specified in job description.'
-        : profile.education.length > 0
+        : (profile.education || []).length > 0
         ? `Profile records ${candidateEd}.`
         : 'No evidence found in current resume.'
     },

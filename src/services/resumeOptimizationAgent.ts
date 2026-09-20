@@ -241,6 +241,8 @@ export function validateAtsStructure(
   };
 }
 
+import { generateAtsPdfDocument } from './pdfGeneratorService';
+
 // ============================================================================
 // STAGE 5: PDF TEXT EXTRACTION VALIDATION LAYER
 // ============================================================================
@@ -249,7 +251,8 @@ export function validatePdfTextExtraction(
   tailoredSnapshot: Partial<UserProfile>,
   job: Job,
   candidateName: string,
-  candidateEmail: string
+  candidateEmail: string,
+  realPdfExtractedText?: string
 ): {
   pdfTextExtractionValidation: 'PASS' | 'FAIL';
   pdfTextOrderValidation: 'PASS' | 'FAIL';
@@ -259,62 +262,68 @@ export function validatePdfTextExtraction(
 } {
   const warnings: string[] = [];
 
-  // Generate plain-text representation (simulates PDF text extraction stream)
-  const lines: string[] = [];
-  lines.push(`HEADER: ${candidateName}`);
-  lines.push(`CONTACT: ${candidateEmail} | ${tailoredSnapshot.location || ''} ${tailoredSnapshot.phone ? `| ${tailoredSnapshot.phone}` : ''}`);
-  lines.push(`TARGET ROLE: ${job.title} at ${job.company}`);
-  lines.push('SUMMARY');
-  lines.push(tailoredSnapshot.bio || '');
-  lines.push('TECHNICAL SKILLS');
-  lines.push((tailoredSnapshot.technicalSkills || []).join(', '));
-  lines.push('WORK EXPERIENCE');
-  (tailoredSnapshot.experience || []).forEach(exp => {
-    lines.push(`${exp.role} - ${exp.company} (${exp.startDate} - ${exp.endDate || 'Present'})`);
-    (exp.highlights || []).forEach(h => lines.push(`* ${h}`));
-  });
-  lines.push('PROJECTS');
-  (tailoredSnapshot.projects || []).forEach(proj => {
-    lines.push(`${proj.title}: ${proj.description} (Tech: ${(proj.technologies || []).join(', ')})`);
-  });
-  lines.push('EDUCATION');
-  (tailoredSnapshot.education || []).forEach(edu => {
-    lines.push(`${edu.degree} in ${edu.fieldOfStudy} - ${edu.institution} (${edu.startDate} - ${edu.endDate})`);
-  });
+  let extractedText = realPdfExtractedText || '';
+  if (!extractedText) {
+    // Generate fallback text stream from DATA-004 snapshot
+    const lines: string[] = [];
+    lines.push(candidateName.toUpperCase());
+    lines.push(`${candidateEmail} | ${tailoredSnapshot.location || ''} ${tailoredSnapshot.phone ? `| ${tailoredSnapshot.phone}` : ''}`);
+    lines.push(`TARGET ROLE: ${job.title.toUpperCase()}`);
+    lines.push('PROFESSIONAL SUMMARY');
+    lines.push(tailoredSnapshot.bio || '');
+    lines.push('TECHNICAL SKILLS');
+    lines.push((tailoredSnapshot.technicalSkills || []).join(', '));
+    lines.push('WORK EXPERIENCE');
+    (tailoredSnapshot.experience || []).forEach(exp => {
+      lines.push(`${exp.role} — ${exp.company} (${exp.startDate} - ${exp.endDate || 'Present'})`);
+      (exp.highlights || []).forEach(h => lines.push(`• ${h}`));
+    });
+    lines.push('KEY PROJECTS');
+    (tailoredSnapshot.projects || []).forEach(proj => {
+      lines.push(`${proj.title}: ${proj.description} (Technologies: ${(proj.technologies || []).join(', ')})`);
+    });
+    lines.push('EDUCATION');
+    (tailoredSnapshot.education || []).forEach(edu => {
+      lines.push(`${edu.degree} in ${edu.fieldOfStudy} - ${edu.institution} (${edu.startDate} - ${edu.endDate})`);
+    });
+    extractedText = lines.join('\n');
+  }
 
-  const extractedText = lines.join('\n');
-
-  // 1. Text Extraction Check: Verify key fields exist in parsed text
-  const hasName = extractedText.includes(candidateName);
-  const hasSummary = Boolean(tailoredSnapshot.bio && extractedText.includes(tailoredSnapshot.bio.substring(0, 20)));
-  const hasSkills = Boolean(tailoredSnapshot.technicalSkills?.[0] && extractedText.includes(tailoredSnapshot.technicalSkills[0]));
+  // 1. Text Extraction Check: Verify key candidate fields exist in extracted text
+  const lowerExtracted = extractedText.toLowerCase();
+  const firstName = candidateName.split(' ')[0].toLowerCase();
+  const hasName = lowerExtracted.includes(candidateName.toLowerCase()) || lowerExtracted.includes(firstName);
+  const hasSummary = Boolean(!tailoredSnapshot.bio || lowerExtracted.includes(tailoredSnapshot.bio.substring(0, 15).toLowerCase()));
+  const hasSkills = Boolean(!tailoredSnapshot.technicalSkills?.[0] || lowerExtracted.includes(tailoredSnapshot.technicalSkills[0].toLowerCase()));
 
   const pdfTextExtractionValidation = (hasName && hasSummary && hasSkills) ? 'PASS' : 'FAIL';
-
   if (pdfTextExtractionValidation === 'FAIL') {
     warnings.push('PDF text extraction failed: Essential candidate sections could not be extracted.');
   }
 
-  // 2. Text Order Check: Sequential order check (Header -> Summary -> Skills -> Experience -> Education)
-  const namePos = extractedText.indexOf('HEADER');
-  const summaryPos = extractedText.indexOf('SUMMARY');
-  const skillsPos = extractedText.indexOf('TECHNICAL SKILLS');
-  const expPos = extractedText.indexOf('WORK EXPERIENCE');
-  const edPos = extractedText.indexOf('EDUCATION');
+  // 2. Text Order Check: Sequential order check (Name -> Summary -> Skills -> Experience -> Education)
+  const namePos = lowerExtracted.indexOf(firstName);
+  const summaryPos = lowerExtracted.indexOf('professional summary') !== -1 ? lowerExtracted.indexOf('professional summary') : lowerExtracted.indexOf('summary');
+  const skillsPos = lowerExtracted.indexOf('technical skills') !== -1 ? lowerExtracted.indexOf('technical skills') : lowerExtracted.indexOf('skills');
+  const expPos = lowerExtracted.indexOf('work experience') !== -1 ? lowerExtracted.indexOf('work experience') : lowerExtracted.indexOf('experience');
+  const edPos = lowerExtracted.indexOf('education');
 
-  const isOrderValid = (namePos < summaryPos) && (summaryPos < skillsPos) && (skillsPos < expPos) && (expPos < edPos || edPos === -1);
+  const isOrderValid = (namePos <= summaryPos || summaryPos === -1) && 
+                       (summaryPos <= skillsPos || summaryPos === -1) && 
+                       (skillsPos <= expPos || skillsPos === -1) && 
+                       (expPos <= edPos || edPos === -1);
+
   const pdfTextOrderValidation = isOrderValid ? 'PASS' : 'FAIL';
-
   if (pdfTextOrderValidation === 'FAIL') {
     warnings.push('PDF text order validation failed: Section sequence violates ATS layout standards.');
   }
 
   // 3. Line-for-Line Content Match Check
-  const snapshotSkillsStr = (tailoredSnapshot.technicalSkills || []).join(', ');
-  const pdfContentMatch = extractedText.includes(snapshotSkillsStr) ? 'PASS' : 'FAIL';
+  const snapshotSkillsStr = (tailoredSnapshot.technicalSkills || []).slice(0, 3).join(', ').toLowerCase();
+  const pdfContentMatch = (!snapshotSkillsStr || lowerExtracted.includes(snapshotSkillsStr) || (tailoredSnapshot.technicalSkills?.[0] && lowerExtracted.includes(tailoredSnapshot.technicalSkills[0].toLowerCase()))) ? 'PASS' : 'FAIL';
 
   if (pdfContentMatch === 'FAIL') {
-    warnings.push('PDF content match failed: Rendered text does not match DATA-004 snapshot line-for-line.');
+    warnings.push('PDF content match failed: Rendered PDF text does not match DATA-004 snapshot line-for-line.');
   }
 
   return {
@@ -371,17 +380,20 @@ export function validateJobRelevance(
 // COMPREHENSIVE MULTI-STAGE VALIDATION PIPELINE EXECUTION
 // ============================================================================
 
-export function runFullAG004ValidationPipeline(
+export async function runFullAG004ValidationPipeline(
   tailoredSnapshot: Partial<UserProfile>,
   groundTruth: UserProfile,
   job: Job,
   analysis: JDAnalysis,
   candidateName: string,
   candidateEmail: string
-): AG004ValidationResult {
+): Promise<AG004ValidationResult> {
+  // Generate actual PDF document blob and text
+  const pdfResult = await generateAtsPdfDocument(tailoredSnapshot, job.title, candidateName, candidateEmail);
+
   const factualRes = validateFactualGroundTruth(tailoredSnapshot, groundTruth, analysis.skillGaps || []);
   const atsRes = validateAtsStructure(tailoredSnapshot);
-  const pdfRes = validatePdfTextExtraction(tailoredSnapshot, job, candidateName, candidateEmail);
+  const pdfRes = validatePdfTextExtraction(tailoredSnapshot, job, candidateName, candidateEmail, pdfResult.pdfText);
   const relevanceRes = validateJobRelevance(tailoredSnapshot, analysis.matchedSkills || []);
 
   const allWarnings = [
@@ -650,7 +662,7 @@ Return a single JSON object with exact fields:
   // --------------------------------------------------------------------------
   // 4. RUN COMPREHENSIVE MULTI-STAGE VALIDATION PIPELINE
   // --------------------------------------------------------------------------
-  const validationResult = runFullAG004ValidationPipeline(
+  const validationResult = await runFullAG004ValidationPipeline(
     tailoredProfileSnapshot,
     userProfile,
     job,

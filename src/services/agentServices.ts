@@ -200,7 +200,7 @@ export const searchJobs = async (
       timestamp: new Date().toISOString(),
       status: 'SUCCESS',
       inputSummary: `Query: "${query || userProfile.jobRole || 'Software Engineer'}" (Target Role: "${userProfile.jobRole || 'None'}")`,
-      outputSummary: `JSearch raw results: ${pipelineMetrics?.rawCount ?? jobs.length} | Normalized: ${pipelineMetrics?.normalizedCount ?? jobs.length} | Location filter: ${pipelineMetrics?.locationFilteredCount ?? jobs.length} | Role/relevance filter: ${pipelineMetrics?.relevanceFilteredCount ?? jobs.length} | Work-mode filter: ${pipelineMetrics?.workModeFilteredCount ?? jobs.length} | Deduplicated: ${pipelineMetrics?.dedupedCount ?? jobs.length} | Final jobs displayed: ${jobs.length}`,
+      outputSummary: `JSearch raw results: ${pipelineMetrics?.rawCount ?? jobs.length} | Queries executed: ${pipelineMetrics?.queriesExecuted?.length ?? 1} | Pages fetched: ${pipelineMetrics?.pagesFetched ?? 1} | Location filter: ${pipelineMetrics?.locationFilteredCount ?? jobs.length} | Work-mode filter: ${pipelineMetrics?.workModeFilteredCount ?? jobs.length} | Deduplicated: ${pipelineMetrics?.dedupedCount ?? jobs.length} | Final jobs displayed: ${jobs.length}`,
       durationMs
     };
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkflow } from '../../context/WorkflowContext';
 import { Card, Button, Badge, AgentBadge } from '../../components/ui';
+import { generateAtsPdfDocument } from '../../services/pdfGeneratorService';
 import {
   Sparkles,
   Download,
@@ -255,16 +256,32 @@ export const ResumeOptimizationPage: React.FC = () => {
     return lines.join('\n');
   };
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (!tailoredResume) return;
-    const content = getFullResumeText();
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Tailored_Resume_${selectedJob.company.replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (tailoredResume.isVerified === false) {
+      setOptError('Resume validation required before download.');
+      return;
+    }
+
+    try {
+      const candidateName = user.name || profile.headline || 'Candidate Name';
+      const candidateEmail = user.email || 'candidate@example.com';
+      const pdfResult = await generateAtsPdfDocument(
+        currentSnapshot,
+        selectedJob.title,
+        candidateName,
+        candidateEmail
+      );
+
+      const url = URL.createObjectURL(pdfResult.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = pdfResult.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setOptError('Failed to generate PDF document: ' + (err.message || err));
+    }
   };
 
   const handleCopyText = () => {

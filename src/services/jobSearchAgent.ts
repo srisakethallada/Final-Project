@@ -1,6 +1,7 @@
 // ============================================================================
 // AG-002: JOB SEARCH AGENT (AI CAREER OS CORE INTELLIGENCE ENGINE)
-// Data-Driven External Job Search, Deduplication, & Deterministic Relevance Ranking
+// Location-First Discovery Engine, Multi-Query Fallback Strategy, API Pagination
+// Deduplication, & Non-Destructive Relevance Ranking
 // ============================================================================
 
 import { UserProfile, Job, JobDescription } from '../types';
@@ -22,65 +23,201 @@ export interface PipelineMetrics {
   rawCount: number;
   normalizedCount: number;
   locationFilteredCount: number;
-  relevanceFilteredCount: number;
   workModeFilteredCount: number;
   dedupedCount: number;
   finalCount: number;
+  queriesExecuted?: string[];
+  pagesFetched?: number;
+}
+
+export interface QueryStrategy {
+  query: string;
+  description: string;
 }
 
 /**
- * Builds search query dynamically using AG-001 career profile and structured location filters
+ * Generates dynamic location-first multi-query search strategies based on AG-001 career profile and selected location
+ */
+export const generateSearchQueries = (
+  profile: UserProfile,
+  filterQuery?: string,
+  locationFilter?: string | StructuredLocationFilter
+): QueryStrategy[] => {
+  let targetCity = '';
+  let targetState = '';
+  let targetCountry = '';
+
+  if (typeof locationFilter === 'object' && locationFilter !== null) {
+    targetCity = (locationFilter.city || '').trim();
+    targetState = (locationFilter.state || '').trim();
+    targetCountry = (locationFilter.country || '').trim();
+  } else if (typeof locationFilter === 'string' && locationFilter.trim()) {
+    targetCity = locationFilter.trim();
+  } else {
+    targetCity = (profile.preferences?.city || '').trim();
+    targetState = (profile.preferences?.state || '').trim();
+    targetCountry = (profile.preferences?.country || profile.location || '').trim();
+  }
+
+  // Determine geographic scope string (City is strongest constraint if present)
+  let primaryLocStr = '';
+  if (targetCity) {
+    primaryLocStr = targetCity;
+  } else if (targetState && targetCountry) {
+    primaryLocStr = `${targetState}, ${targetCountry}`;
+  } else if (targetState) {
+    primaryLocStr = targetState;
+  } else if (targetCountry) {
+    primaryLocStr = targetCountry;
+  }
+
+  const secondaryLocStr = targetState && targetCountry
+    ? `${targetState}, ${targetCountry}`
+    : targetCountry || primaryLocStr;
+
+  // Extract base role from user input or AG-001 profile
+  const baseRole = (filterQuery && filterQuery.trim())
+    ? filterQuery.trim()
+    : (profile.jobRole && profile.jobRole.trim())
+    ? profile.jobRole.trim()
+    : (profile.headline && profile.headline.trim())
+    ? profile.headline.trim()
+    : 'Software Engineer';
+
+  const queries: QueryStrategy[] = [];
+
+  // Query 1: Primary Role + Primary Location
+  const q1 = primaryLocStr ? `${baseRole} in ${primaryLocStr}` : baseRole;
+  queries.push({ query: q1, description: `Primary Role + Location (${q1})` });
+
+  // Extract tokens from baseRole for fallback variations
+  // E.g. "Cloud & DevOps Engineer" -> ["DevOps Engineer", "Cloud Engineer"]
+  const roleTokens = baseRole
+    .replace(/[^a-z0-9\s]/gi, ' ')
+    .split(/\s+/)
+    .filter(t => t.length > 1 && t.toLowerCase() !== 'and' && t.toLowerCase() !== '&');
+
+  const subRoles: string[] = [];
+  if (roleTokens.length >= 2) {
+    const hasDevOps = roleTokens.some(t => t.toLowerCase().includes('devops'));
+    const hasCloud = roleTokens.some(t => t.toLowerCase().includes('cloud'));
+    const hasEngineer = roleTokens.some(t => t.toLowerCase().includes('engineer') || t.toLowerCase().includes('developer'));
+
+    if (hasDevOps && hasEngineer) subRoles.push('DevOps Engineer');
+    if (hasCloud && hasEngineer) subRoles.push('Cloud Engineer');
+    if (hasDevOps && !subRoles.includes('DevOps Engineer')) subRoles.push('DevOps');
+    if (hasCloud && !subRoles.includes('Cloud Engineer')) subRoles.push('Cloud');
+
+    if (subRoles.length === 0) {
+      const mainTokens = roleTokens.filter(
+        t => t.toLowerCase() !== 'engineer' && t.toLowerCase() !== 'developer' && t.toLowerCase() !== 'senior'
+      );
+      if (mainTokens.length > 0) {
+        subRoles.push(`${mainTokens[0]} Engineer`);
+      }
+    }
+  }
+
+  // Query 2: Sub-Role Variations + Primary Location
+  for (const subRole of subRoles) {
+    const q = primaryLocStr ? `${subRole} in ${primaryLocStr}` : subRole;
+    if (!queries.some(existing => existing.query.toLowerCase() === q.toLowerCase())) {
+      queries.push({ query: q, description: `Sub-Role Variation (${q})` });
+    }
+  }
+
+  // Query 3: Top Verified Technical Skills + Primary Location
+  const topSkills = (profile.technicalSkills && profile.technicalSkills.length > 0)
+    ? profile.technicalSkills
+    : (profile.skills || []);
+
+  if (topSkills.length > 0) {
+    const skill1 = topSkills[0];
+    const qSkill = primaryLocStr ? `${skill1} in ${primaryLocStr}` : skill1;
+    if (!queries.some(existing => existing.query.toLowerCase() === qSkill.toLowerCase())) {
+      queries.push({ query: qSkill, description: `Top Verified Skill (${qSkill})` });
+    }
+  }
+
+  // Query 4: Broader Role Category + Secondary Location (State / Country)
+  let broaderCategory = 'Software Engineer';
+  const lowerBase = baseRole.toLowerCase();
+  if (lowerBase.includes('devops') || lowerBase.includes('cloud') || lowerBase.includes('sre')) {
+    broaderCategory = 'DevOps Engineer';
+  } else if (lowerBase.includes('data')) {
+    broaderCategory = 'Data Engineer';
+  } else if (lowerBase.includes('frontend') || lowerBase.includes('react')) {
+    broaderCategory = 'Frontend Engineer';
+  } else if (lowerBase.includes('backend') || lowerBase.includes('node') || lowerBase.includes('java')) {
+    broaderCategory = 'Backend Engineer';
+  }
+
+  const qBroader = secondaryLocStr ? `${broaderCategory} in ${secondaryLocStr}` : broaderCategory;
+  if (!queries.some(existing => existing.query.toLowerCase() === qBroader.toLowerCase())) {
+    queries.push({ query: qBroader, description: `Broader Role Category (${qBroader})` });
+  }
+
+  return queries;
+};
+
+/**
+ * Builds standard single search query for backwards compatibility
  */
 export const buildSearchQuery = (
   profile: UserProfile,
   filterQuery?: string,
   locationFilter?: string | StructuredLocationFilter
 ): string => {
-  const queryParts: string[] = [];
-
-  // 1. Role or search query term
-  if (filterQuery && filterQuery.trim()) {
-    queryParts.push(filterQuery.trim());
-  } else if (profile.jobRole && profile.jobRole.trim()) {
-    queryParts.push(profile.jobRole.trim());
-  } else if (profile.headline && profile.headline.trim()) {
-    queryParts.push(profile.headline.trim());
-  } else {
-    queryParts.push('Software Engineer');
-  }
-
-  // 2. Structured Geographic Location
-  let locationStr = '';
-  if (typeof locationFilter === 'object' && locationFilter !== null) {
-    const parts: string[] = [];
-    if (locationFilter.city && locationFilter.city.trim()) parts.push(locationFilter.city.trim());
-    if (locationFilter.state && locationFilter.state.trim()) parts.push(locationFilter.state.trim());
-    if (locationFilter.country && locationFilter.country.trim()) parts.push(locationFilter.country.trim());
-    locationStr = parts.join(', ');
-  } else if (typeof locationFilter === 'string' && locationFilter.trim()) {
-    locationStr = locationFilter.trim();
-  } else {
-    const prefs = profile.preferences;
-    if (prefs?.city || prefs?.state || prefs?.country) {
-      const parts: string[] = [];
-      if (prefs.city && prefs.city.trim()) parts.push(prefs.city.trim());
-      if (prefs.state && prefs.state.trim()) parts.push(prefs.state.trim());
-      if (prefs.country && prefs.country.trim()) parts.push(prefs.country.trim());
-      locationStr = parts.join(', ');
-    } else {
-      locationStr = profile.location || prefs?.preferredLocation || '';
-    }
-  }
-
-  if (locationStr && !locationStr.toLowerCase().includes('remote') && locationStr.length >= 2) {
-    queryParts.push(`in ${locationStr}`);
-  }
-
-  return queryParts.join(' ');
+  const strategies = generateSearchQueries(profile, filterQuery, locationFilter);
+  return strategies.length > 0 ? strategies[0].query : 'Software Engineer';
 };
 
 /**
- * Calculates flexible relevance score (0-100%) matching job against AG-001 profile
+ * Normalizes work mode from raw JSearch API response into standard domain types
+ */
+export const normalizeWorkMode = (item: any): 'REMOTE' | 'HYBRID' | 'ONSITE' => {
+  if (item.job_is_remote === true || item.job_is_remote === 'true') {
+    return 'REMOTE';
+  }
+
+  const combined = `${item.job_employment_type || ''} ${item.job_title || ''} ${item.job_description || ''}`.toLowerCase();
+
+  if (combined.includes('remote') || combined.includes('work from home') || combined.includes('wfh')) {
+    return 'REMOTE';
+  }
+  if (combined.includes('hybrid')) {
+    return 'HYBRID';
+  }
+  if (combined.includes('onsite') || combined.includes('on-site') || combined.includes('in-office') || combined.includes('office')) {
+    return 'ONSITE';
+  }
+
+  return 'HYBRID';
+};
+
+/**
+ * Checks if normalized work mode matches user target work mode preference
+ */
+export const isWorkModeMatching = (jobWorkMode: string, targetMode?: string): boolean => {
+  if (!targetMode || targetMode === 'ALL' || targetMode === 'ANY') return true;
+  const t = targetMode.toUpperCase();
+  const j = jobWorkMode.toUpperCase();
+
+  if (t === 'REMOTE') {
+    return j === 'REMOTE';
+  }
+  if (t === 'HYBRID') {
+    return j === 'HYBRID' || j === 'REMOTE';
+  }
+  if (t === 'ONSITE') {
+    return j === 'ONSITE' || j === 'HYBRID';
+  }
+  return true;
+};
+
+/**
+ * Calculates relevance score (0-100%) matching job against AG-001 profile for SORTING & RANKING
+ * NOTE: Non-destructive score; NOT used to cut off or discard valid location results.
  */
 export const calculateRelevanceScore = (
   title: string,
@@ -89,7 +226,7 @@ export const calculateRelevanceScore = (
   location: string,
   profile: UserProfile
 ): number => {
-  let score = 50; // Baseline relevance for real external job result
+  let score = 50; // Baseline score for real external API result
 
   const targetRole = (profile.jobRole || profile.headline || '').toLowerCase();
   const lowerTitle = title.toLowerCase();
@@ -99,20 +236,22 @@ export const calculateRelevanceScore = (
   if (targetRole && lowerTitle.includes(targetRole)) {
     score += 30;
   } else {
-    // Check partial title match & token overlap (e.g. Cloud, DevOps, SRE, Systems, Engineer, Developer)
     const roleWords = targetRole
       .replace(/[^a-z0-9\s]/gi, ' ')
       .split(/\s+/)
-      .filter(w => w.length > 2 && w !== 'engineer' && w !== 'developer');
+      .filter(w => w.length > 2 && w !== 'engineer' && w !== 'developer' && w !== 'and');
 
     if (roleWords.length > 0) {
       const matchedWords = roleWords.filter(w => lowerTitle.includes(w) || lowerJd.includes(w));
-      score += Math.round((matchedWords.length / roleWords.length) * 20);
+      score += Math.round((matchedWords.length / roleWords.length) * 25);
     }
   }
 
-  // 2. Technical Skill Matching (up to +30 points)
-  const skillsToMatch = profile.technicalSkills.length > 0 ? profile.technicalSkills : profile.skills;
+  // 2. Technical Skill Matching (up to +20 points)
+  const skillsToMatch = (profile.technicalSkills && profile.technicalSkills.length > 0)
+    ? profile.technicalSkills
+    : (profile.skills || []);
+
   if (skillsToMatch.length > 0) {
     let matchedSkillCount = 0;
     for (const skill of skillsToMatch) {
@@ -121,7 +260,7 @@ export const calculateRelevanceScore = (
       }
     }
     const skillRatio = matchedSkillCount / skillsToMatch.length;
-    score += Math.round(skillRatio * 30);
+    score += Math.round(skillRatio * 20);
   }
 
   // 3. Work Mode & Location Match (+10 points)
@@ -130,7 +269,7 @@ export const calculateRelevanceScore = (
     score += 10;
   }
 
-  return Math.min(99, Math.max(45, score));
+  return Math.min(99, Math.max(50, score));
 };
 
 /**
@@ -141,7 +280,8 @@ export const normalizeJSearchItem = (
   idx: number,
   profile: UserProfile
 ): { job: Job; jd: JobDescription; rawItem: any } => {
-  const jobId = `job_${item.job_id || Date.now()}_${idx}`;
+  const stableId = item.job_id || item.job_apply_link || item.job_google_link || `${Date.now()}_${idx}`;
+  const jobId = item.job_id ? `job_${item.job_id}` : `job_${Date.now()}_${idx}`;
   const descriptionId = `jd_${jobId}`;
 
   const title = item.job_title || 'Software Engineering Role';
@@ -157,11 +297,7 @@ export const normalizeJSearchItem = (
     ? `${city}${state ? `, ${state}` : ''}${country ? ` (${country})` : ''}`
     : country || 'United States';
 
-  const workMode: 'REMOTE' | 'HYBRID' | 'ONSITE' = item.job_is_remote
-    ? 'REMOTE'
-    : (item.job_employment_type || '').toUpperCase().includes('HYBRID')
-    ? 'HYBRID'
-    : 'ONSITE';
+  const workMode = normalizeWorkMode(item);
 
   const jobType: 'FULL_TIME' | 'CONTRACT' | 'INTERNSHIP' = (item.job_employment_type || '')
     .toUpperCase()
@@ -210,11 +346,13 @@ export const normalizeJSearchItem = (
   const requiredSkills: string[] = [];
   const preferredSkills: string[] = [];
 
-  if (profile.technicalSkills && profile.technicalSkills.length > 0) {
-    for (const skill of profile.technicalSkills) {
-      if (fullText.toLowerCase().includes(skill.toLowerCase())) {
-        requiredSkills.push(skill);
-      }
+  const candidateSkills = (profile.technicalSkills && profile.technicalSkills.length > 0)
+    ? profile.technicalSkills
+    : (profile.skills || []);
+
+  for (const skill of candidateSkills) {
+    if (fullText.toLowerCase().includes(skill.toLowerCase())) {
+      requiredSkills.push(skill);
     }
   }
 
@@ -222,7 +360,7 @@ export const normalizeJSearchItem = (
     id: descriptionId,
     jobId,
     fullText,
-    requiredSkills: requiredSkills.length > 0 ? requiredSkills : (profile.skills || []).slice(0, 5),
+    requiredSkills: requiredSkills.length > 0 ? requiredSkills : candidateSkills.slice(0, 5),
     preferredSkills: preferredSkills,
     responsibilities: [
       `Design and implement engineering solutions for ${title} role.`,
@@ -245,16 +383,21 @@ const lowerTextIncludesSenior = (title: string, fullText: string): boolean => {
 };
 
 /**
- * Deduplicates jobs based on company + title + location hash
+ * Deduplicates jobs based on stable job_id, apply URL, or company + title + location key.
+ * NOTE: Two jobs with the same title at different companies are NOT deduplicated.
  */
 export const deduplicateJobs = (
-  jobPairs: { job: Job; jd: JobDescription }[]
-): { job: Job; jd: JobDescription }[] => {
+  jobPairs: { job: Job; jd: JobDescription; rawItem: any }[]
+): { job: Job; jd: JobDescription; rawItem: any }[] => {
   const seenKeys = new Set<string>();
-  const uniquePairs: { job: Job; jd: JobDescription }[] = [];
+  const uniquePairs: { job: Job; jd: JobDescription; rawItem: any }[] = [];
 
   for (const pair of jobPairs) {
-    const key = `${pair.job.company.toLowerCase()}_${pair.job.title.toLowerCase()}_${pair.job.location.toLowerCase()}`;
+    const rawId = pair.rawItem?.job_id;
+    const rawUrl = pair.rawItem?.job_apply_link;
+    const compositeKey = `${pair.job.company.toLowerCase()}_${pair.job.title.toLowerCase()}_${pair.job.location.toLowerCase()}`;
+    const key = rawId ? `id_${rawId}` : rawUrl ? `url_${rawUrl}` : compositeKey;
+
     if (!seenKeys.has(key)) {
       seenKeys.add(key);
       uniquePairs.push(pair);
@@ -265,79 +408,15 @@ export const deduplicateJobs = (
 };
 
 /**
- * Executes AG-002 Job Search pipeline against server API backend with full diagnostic metrics
+ * Executes AG-002 Location-First Job Discovery pipeline against backend API server
+ * Uses dynamic search fallback queries, multi-page API pagination, deduplication, and ranking.
  */
 export const fetchJobsFromApi = async (
   profile: UserProfile,
   filterQuery?: string,
   filterLocation?: string | StructuredLocationFilter
 ): Promise<{ jobs: Job[]; jds: Record<string, JobDescription>; pipelineMetrics: PipelineMetrics }> => {
-  const searchQuery = buildSearchQuery(profile, filterQuery, filterLocation);
-  const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
-
-  let response: Response | null = null;
-  let lastErr: any = null;
-
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const currentHost = attempt % 2 === 1 ? 'http://localhost:3000' : 'http://127.0.0.1:3000';
-      const targetUrl = typeof window !== 'undefined' ? '/api/search-jobs' : `${currentHost}/api/search-jobs`;
-      response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: searchQuery,
-          page: 1
-        })
-      });
-      if (response && response.ok) break;
-    } catch (err: any) {
-      lastErr = err;
-      if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
-    }
-  }
-
-  if (!response || !response.ok) {
-    const errorText = response ? await response.text().catch(() => '') : '';
-    let message = response ? `Job Search API Error (${response.status})` : (lastErr?.message || 'Job Search network request failed');
-    try {
-      if (errorText) {
-        const errJson = JSON.parse(errorText);
-        message = errJson?.error?.message || message;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-
-  const rawJson = await response.json();
-  const rawItems = Array.isArray(rawJson.data?.jobs)
-    ? rawJson.data.jobs
-    : Array.isArray(rawJson.data)
-    ? rawJson.data
-    : Array.isArray(rawJson)
-    ? rawJson
-    : [];
-
-  const rawCount = rawItems.length;
-
-  if (rawCount === 0) {
-    const emptyMetrics: PipelineMetrics = {
-      rawCount: 0,
-      normalizedCount: 0,
-      locationFilteredCount: 0,
-      relevanceFilteredCount: 0,
-      workModeFilteredCount: 0,
-      dedupedCount: 0,
-      finalCount: 0
-    };
-    return { jobs: [], jds: {}, pipelineMetrics: emptyMetrics };
-  }
-
-  // 1. Normalize raw items into domain models
-  const normalizedPairs = rawItems.map((item: any, idx: number) => normalizeJSearchItem(item, idx, profile));
-  const normalizedCount = normalizedPairs.length;
+  const strategies = generateSearchQueries(profile, filterQuery, filterLocation);
 
   // Extract location targets
   let targetCity = '';
@@ -357,8 +436,98 @@ export const fetchJobsFromApi = async (
     targetWorkMode = profile.preferences?.workMode || 'ALL';
   }
 
-  // 2. Filter by normalized location evidence
-  const locationFilteredPairs = normalizedPairs.filter(p => {
+  const allRawPairs: { job: Job; jd: JobDescription; rawItem: any }[] = [];
+  const queriesExecuted: string[] = [];
+  let pagesFetched = 0;
+  let rawCount = 0;
+  let apiErrorsEncountered = 0;
+  let lastApiErrorMessage = '';
+
+  const TARGET_JOB_COUNT = 15;
+  const MAX_PAGES_PER_QUERY = 2;
+
+  // Execute multi-query strategy sequentially until target result limit is met
+  for (const strat of strategies) {
+    if (allRawPairs.length >= TARGET_JOB_COUNT) break;
+
+    queriesExecuted.push(strat.query);
+
+    for (let page = 1; page <= MAX_PAGES_PER_QUERY; page++) {
+      pagesFetched++;
+
+      let response: Response | null = null;
+      let lastErr: any = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const currentHost = attempt === 1 ? 'http://localhost:3000' : 'http://127.0.0.1:3000';
+          const targetUrl = typeof window !== 'undefined' ? '/api/search-jobs' : `${currentHost}/api/search-jobs`;
+          response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              query: strat.query,
+              page
+            })
+          });
+          if (response && response.ok) break;
+        } catch (err: any) {
+          lastErr = err;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 500));
+        }
+      }
+
+      if (!response || !response.ok) {
+        apiErrorsEncountered++;
+        const errorText = response ? await response.text().catch(() => '') : '';
+        lastApiErrorMessage = response
+          ? `Job Search API Error (${response.status})`
+          : (lastErr?.message || 'Network connection error while connecting to Job Search API');
+        try {
+          if (errorText) {
+            const errJson = JSON.parse(errorText);
+            lastApiErrorMessage = errJson?.error?.message || lastApiErrorMessage;
+          }
+        } catch {}
+
+        // Break page loop for this query if API error occurred
+        break;
+      }
+
+      const rawJson = await response.json();
+      const items = Array.isArray(rawJson.data?.jobs)
+        ? rawJson.data.jobs
+        : Array.isArray(rawJson.data)
+        ? rawJson.data
+        : Array.isArray(rawJson)
+        ? rawJson
+        : [];
+
+      if (items.length === 0) {
+        // No more pages for this query
+        break;
+      }
+
+      rawCount += items.length;
+
+      const normalized = items.map((item: any, idx: number) => normalizeJSearchItem(item, idx, profile));
+      allRawPairs.push(...normalized);
+
+      if (allRawPairs.length >= TARGET_JOB_COUNT) break;
+    }
+  }
+
+  // If ALL queries encountered API errors and no raw items were retrieved, throw explicit API error
+  if (rawCount === 0 && apiErrorsEncountered > 0 && allRawPairs.length === 0) {
+    throw new Error(lastApiErrorMessage || 'Unable to retrieve jobs right now. Please try again.');
+  }
+
+  const normalizedCount = allRawPairs.length;
+
+  // 1. Filter by location evidence (Location-First Constraint)
+  const locationFilteredPairs = allRawPairs.filter(p => {
     const item = p.rawItem;
     return isLocationMatching(
       item.job_city || '',
@@ -372,22 +541,17 @@ export const fetchJobsFromApi = async (
   });
   const locationFilteredCount = locationFilteredPairs.length;
 
-  // 3. Filter by role/relevance score (relevanceScore >= 45)
-  const relevanceFilteredPairs = locationFilteredPairs.filter(p => p.job.relevanceScore >= 45);
-  const relevanceFilteredCount = relevanceFilteredPairs.length;
-
-  // 4. Filter by work mode (if workMode is not ALL/ANY)
-  const workModeFilteredPairs = relevanceFilteredPairs.filter(p => {
-    if (!targetWorkMode || targetWorkMode === 'ALL' || targetWorkMode === 'ANY') return true;
-    return p.job.workMode === targetWorkMode || p.job.workMode === 'REMOTE';
+  // 2. Filter by work mode preference
+  const workModeFilteredPairs = locationFilteredPairs.filter(p => {
+    return isWorkModeMatching(p.job.workMode, targetWorkMode);
   });
   const workModeFilteredCount = workModeFilteredPairs.length;
 
-  // 5. Deduplicate pairs
+  // 3. Deduplicate by stable job ID / apply link
   const deduplicatedPairs = deduplicateJobs(workModeFilteredPairs);
   const dedupedCount = deduplicatedPairs.length;
 
-  // 6. Sort by deterministic relevance score descending
+  // 4. Sort by relevance score descending (Non-destructive sorting)
   deduplicatedPairs.sort((a, b) => b.job.relevanceScore - a.job.relevanceScore);
 
   const jobs = deduplicatedPairs.map(p => p.job);
@@ -401,11 +565,26 @@ export const fetchJobsFromApi = async (
     rawCount,
     normalizedCount,
     locationFilteredCount,
-    relevanceFilteredCount,
     workModeFilteredCount,
     dedupedCount,
-    finalCount: jobs.length
+    finalCount: jobs.length,
+    queriesExecuted,
+    pagesFetched
   };
+
+  // Log detailed diagnostic information in development/browser context
+  if (typeof console !== 'undefined') {
+    console.log('[AG-002 Location-First Discovery Pipeline Log]', {
+      locationFilter: { country: targetCountry, state: targetState, city: targetCity, workMode: targetWorkMode },
+      queriesExecuted,
+      pagesFetched,
+      rawCount,
+      locationFilteredCount,
+      workModeFilteredCount,
+      dedupedCount,
+      finalCount: jobs.length
+    });
+  }
 
   return { jobs, jds, pipelineMetrics };
 };

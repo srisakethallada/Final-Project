@@ -220,10 +220,32 @@ export interface CoverLetter {
   jobId: string;
   userId: string;
   resumeVersionId: string;
+  jdAnalysisId?: string;
+  subject?: string;
+  salutation?: string;
+  paragraph1?: string;
+  paragraph2?: string;
+  paragraph3?: string;
+  paragraph4?: string;
+  closing?: string;
   content: string;
   createdAt: string;
+  updatedAt?: string;
   companyName: string;
-  jobTitle: string;
+  jobTitle: string; // Raw job title
+  normalizedJobTitle?: string; // Clean professional role title (e.g. "DevOps Engineer")
+  isVerified?: boolean;
+  validationResult?: {
+    factualityValidation: 'PASS' | 'FAIL';
+    unsupportedClaimsCount: number;
+    unsupportedClaims: string[];
+    exaggeratedExperienceClaimsCount?: number;
+    jobTitleNormalization?: 'PASS' | 'FAIL';
+    jobContextMatch: 'PASS' | 'FAIL';
+    pdfTextExtractionValidation: 'PASS' | 'FAIL';
+    pdfContentMatch: 'PASS' | 'FAIL';
+    overallStatus: 'VALIDATED' | 'FAILED';
+  };
 }
 
 export type ApplicationStatusType = 
